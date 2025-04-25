@@ -1,6 +1,8 @@
 [![Build Status](https://travis-ci.com/evogytis/baltic.svg?branch=master)](https://travis-ci.com/evogytis/baltic)
 [![downloads](https://anaconda.org/bioconda/baltic/badges/downloads.svg)](https://anaconda.org/bioconda/baltic)
 
+---
+
 ### The most recent development version of BALTIC can be found on branch `dev-main`
 
 ### For documentation, check out the GitHub [wiki](https://github.com/evogytis/baltic/wiki). For full examples of usage, you can search through the [notebooks](https://github.com/evogytis/baltic/tree/dev-main/docs/notebooks):
@@ -10,6 +12,8 @@
 - [galindia](https://github.com/evogytis/baltic/blob/dev-main/docs/notebooks/galindia.ipynb): integrations with trees generated using the nextstrain toolkit.
 
 ### The [BALTIC gallery](https://phylo-baltic.github.io/baltic-gallery/) has several examples of figures generated using BALTIC, and example code for each.
+
+---
 
 # baltic
 
