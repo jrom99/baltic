@@ -1540,7 +1540,7 @@ class tree: ## tree class
         if width==None: width=2
         if colour==None: colour='k'
         if connection_type==None: connection_type='baltic'
-        assert connection_type in ['baltic','direct','elbow'],'Unrecognised drawing type "%s"'%(tree_type)
+        assert connection_type in ['baltic','direct','elbow'],'Unrecognised drawing type "%s"'%(connection_type)
 
         branches=[]
         colours=[]
@@ -2183,8 +2183,8 @@ def loadJSON(json_object,json_translation={'name':'name','absoluteTime':'num_dat
     
     Docstring generated with ChatGPT 4o.
     """
-    length_keys = ['absoluteTime', 'length', 'height']
-    assert 'name' in json_translation and any(key in json_translation for key in required_keys),'JSON translation dictionary missing entries: %s'%(', '.join([entry for entry in ['name']+length_keys if (entry in json_translation)==False]))
+    required_keys = ['absoluteTime', 'length', 'height']
+    assert 'name' in json_translation and any(key in json_translation for key in required_keys),'JSON translation dictionary missing entries: %s'%(', '.join([entry for entry in ['name']+required_keys if (entry in json_translation)==False]))
     if verbose==True: print('Reading JSON')
 
     if isinstance(json_object,str): ## string provided - either nextstrain URL or local path
@@ -2263,6 +2263,6 @@ def loadJSON(json_object,json_translation={'name':'name','absoluteTime':'num_dat
 
 if __name__ == '__main__':
     import sys
-    ll=make_tree(sys.argv[1],ll)
+    ll=make_tree(sys.argv[1])
     ll.traverse_tree()
     sys.stdout.write('%s\n'%(ll.treeHeight))
