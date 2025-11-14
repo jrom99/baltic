@@ -6,8 +6,10 @@ import re
 import sys
 from functools import reduce
 from itertools import takewhile
+from typing import Callable, Literal
 
 from matplotlib.collections import LineCollection
+
 
 __all__ = [
     "decimalDate",
@@ -87,7 +89,7 @@ def decimalDate(date: str, fmt: str = "%Y-%m-%d", variable: bool = False):
     return year + ((adatetime - boy).total_seconds() / ((eoy - boy).total_seconds()))  ## return fractional year
 
 
-def calendarDate(timepoint: float, fmt: str="%Y-%m-%d"):
+def calendarDate(timepoint: float, fmt: str = "%Y-%m-%d"):
     """
     Converts decimal dates to a specified calendar date format.
 
@@ -146,7 +148,66 @@ def convertDate(date_string: str, start: str, end: str):
         raise ValueError('Error converting date "%s" from format "%s" to "%s": "%s"' % (date_string, start, end, e))
 
 
-class reticulation:  ## reticulation class (recombination, conversion, reassortment)
+def _initialized_property(func: Callable):
+    name = func.__name__
+
+    def getter(self):
+        value = getattr(self, f"_{name}", None)
+        if value is None:
+            raise AttributeError(f"{name} is not initialized")
+        return value
+
+    def setter(self, value):
+        setattr(self, f"_{name}", value)
+
+    return property(getter, setter)
+
+
+class _Branch:
+    """Parent class to tree components (nodes, tips, reticulation events and collapsed nodes)
+
+    Attributes:
+        branchType ("leaf" | "node"): Type of branch (defined in subclasses)
+        x (float | None): x-coordinate for plotting, default is `None`
+        y (float | None): y-coordinate for plotting, default is `None`
+        length (float): Length of the branch, assigned in `make_tree()` or `collapseSubtree()`
+        height (float): Height of the branch, assigned in `traverse_tree()` or `collapseSubtree()`
+        parent (node): Parent node, assigned in `make_tree()` or `collapseSubtree()`
+        traits (dict): Dictionary of traits associated with this object, assigned in `make_tree()` or `collapseSubtree()`
+        index (int): The index of the character that defines this object in the tree string, or the parent node in `clade`
+    """
+    branchType: Literal["leaf", "node"]
+    x: float | None
+    y: float | None
+    traits: dict | None
+
+    def __init__(
+        self,
+        branchType: Literal["leaf", "node"],
+        x: float | None = None,
+        y: float | None = None,
+        traits: dict | None = None,
+    ):
+        self.branchType = branchType
+        self.x = x
+        self.y = y
+        self.absoluteTime = None
+        self.traits = traits or {}
+
+    @_initialized_property
+    def length(self) -> float: ...
+
+    @_initialized_property
+    def height(self) -> float: ...
+
+    @_initialized_property
+    def parent(self) -> "node": ...
+
+    @_initialized_property
+    def index(self) -> int: ...
+
+
+class reticulation(_Branch):  ## reticulation class (recombination, conversion, reassortment)
     """
     Represents a reticulation event in a phylogenetic tree, such as recombination or reassortment.
 
@@ -166,18 +227,13 @@ class reticulation:  ## reticulation class (recombination, conversion, reassortm
 
     Docstring generated with ChatGPT 4o.
     """
+    def __init__(self, name: str):
+        super().__init__("leaf")
 
-    def __init__(self, name):
-        self.branchType = "leaf"
+        self.name = name
+
         self.length = 0.0
         self.height = 0.0
-        self.absoluteTime = None
-        self.parent = None
-        self.traits = {}
-        self.index = None
-        self.name = name
-        self.x = None
-        self.y = None
         self.width = 0.5
         self.target = None
 
@@ -191,7 +247,7 @@ class reticulation:  ## reticulation class (recombination, conversion, reassortm
         return False
 
 
-class clade:  ## clade class
+class clade(_Branch):  ## clade class
     """
     Represents a collapsed clade in a phylogenetic tree.
 
@@ -214,20 +270,11 @@ class clade:  ## clade class
 
     Docstring generated with ChatGPT 4o.
     """
-
-    def __init__(self, givenName):
-        self.branchType = "leaf"  ## clade class poses as a leaf
+    def __init__(self, givenName: str):
+        super().__init__("leaf")
+        self.name = givenName  ## the pretend tip name for the clade
         self.subtree = None  ## subtree will contain all the branches that were collapsed
         self.leaves = None
-        self.length = 0.0
-        self.height = None
-        self.absoluteTime = None
-        self.parent = None
-        self.traits = {}
-        self.index = None
-        self.name = givenName  ## the pretend tip name for the clade
-        self.x = None
-        self.y = None
         self.lastHeight = None  ## refers to the height of the highest tip in the collapsed clade
         self.lastAbsoluteTime = None  ## refers to the absolute time of the highest tip in the collapsed clade
         self.width = 1
@@ -242,7 +289,7 @@ class clade:  ## clade class
         return False
 
 
-class node:  ## node class
+class node(_Branch):  ## node class
     """
     Represents a node in a phylogenetic tree.
 
@@ -262,20 +309,10 @@ class node:  ## node class
 
     Docstring generated with ChatGPT 4o.
     """
-
     def __init__(self):
-        self.branchType = "node"
-        self.length = 0.0  ## branch length, recovered from string
-        self.height = None  ## height, set by traversing the tree, which adds up branch lengths along the way
-        self.absoluteTime = None  ## branch end point in absolute time, once calibrations are done
-        self.parent = None  ## reference to parent node of the node
+        super().__init__("node")
         self.children = []  ## a list of descendent branches of this node
-        self.traits = {}  ## dictionary that will contain annotations from the tree string, e.g. {'posterior':1.0}
-        self.index = None  ## index of the character designating this object in the tree string, it's a unique identifier for every object in the tree
         self.childHeight = None  ## the youngest descendant tip of this node
-        self.x = None  ## X and Y coordinates of this node, once drawTree() is called
-        self.y = None
-        ## contains references to all tips of this node
         self.leaves = set()  ## is a set of tips that are descended from it
 
     def is_leaflike(self):
@@ -288,7 +325,7 @@ class node:  ## node class
         return True
 
 
-class leaf:  ## leaf class
+class leaf(_Branch):  ## leaf class
     """
     Represents a leaf in a phylogenetic tree.
 
@@ -308,18 +345,8 @@ class leaf:  ## leaf class
     """
 
     def __init__(self):
-        self.branchType = "leaf"
+        super().__init__("leaf")
         self.name = None  ## name of tip after translation, since BEAST trees will generally have numbers for taxa but will provide a map at the beginning of the file
-        self.index = (
-            None  ## index of the character that defines this object, will be a unique ID for each object in the tree
-        )
-        self.length = None  ## branch length
-        self.absoluteTime = None  ## position of tip in absolute time
-        self.height = None  ## height of tip
-        self.parent = None  ## parent
-        self.traits = {}  ## trait dictionary
-        self.x = None  ## position of tip on x axis if the tip were to be plotted
-        self.y = None  ## position of tip on y axis if the tip were to be plotted
 
     def is_leaflike(self):
         return True
