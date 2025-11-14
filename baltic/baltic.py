@@ -203,6 +203,18 @@ class leaf(Branch):  ## leaf class
         self.name = None  ## name of tip after translation, since BEAST trees will generally have numbers for taxa but will provide a map at the beginning of the file
 
 
+def is_node(obj: Branch) -> TypeGuard[node]:
+    return obj.is_node()
+
+
+def is_leaf(obj: Branch) -> TypeGuard[leaf]:
+    return obj.is_leaf()
+
+
+def is_leaflike(obj: Branch) -> TypeGuard[leaf | clade]:
+    return obj.is_leaflike()
+
+
 class tree:  ## tree class
     """
     Represents a phylogenetic tree.
@@ -1364,7 +1376,7 @@ class tree:  ## tree class
         externals = list(filter(secondFilter, filter(lambda k: k.is_leaflike(), self.Objects)))
         return externals
 
-    def getInternal(self, secondFilter=None):
+    def getInternal(self, secondFilter: Callable[[node], bool] | None = None):
         """
         Get all branches belonging to the `node` class.
 
@@ -1380,10 +1392,13 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        internals = list(filter(secondFilter, filter(lambda k: k.is_node(), self.Objects)))
+        if secondFilter is None:
+            secondFilter = always_true
+
+        internals = [k for k in self.Objects if is_node(k) and secondFilter(k)]
         return internals
 
-    def getBranches(self, attrs=lambda x: True, warn=True):
+    def getBranches(self, attrs: Callable[..., bool] = always_true, warn: bool = True):
         """
         Get branches that satisfy a specified condition.
 
@@ -1403,7 +1418,7 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        select = list(filter(attrs, self.Objects))
+        select = [k for k in self.Objects if attrs(k)]
 
         if len(select) == 0 and warn:
             raise Exception("No branches satisfying function were found amongst branches")
@@ -1414,7 +1429,7 @@ class tree:  ## tree class
         else:
             return select
 
-    def getParameter(self, statistic, use_trait=False, which=None):
+    def getParameter(self, statistic: str, use_trait: bool=False, which: Callable[[Branch], bool] | None=None):
         """
         Return a list of either branch trait or attribute states across branches.
 
@@ -1437,9 +1452,9 @@ class tree:  ## tree class
         Docstring generated with ChatGPT 4o.
         """
         if which is None:
-            branches = self.Objects
-        else:
-            branches = filter(which, self.Objects)
+            which = always_true
+
+        branches = [k for k in self.Objects if which(k)]
 
         if not use_trait:
             params = [getattr(k, statistic) for k in branches if hasattr(k, statistic)]
