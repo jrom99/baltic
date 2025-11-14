@@ -1,14 +1,14 @@
 import copy
-import datetime as dt
 import json
 import math
 import re
 import sys
 from functools import reduce
-from itertools import takewhile
-from typing import Callable, Literal, TypeVar
+from operator import methodcaller
+from typing import Callable, Literal
 
 from matplotlib.collections import LineCollection
+from .utils import decimalDate, convertDate, calendarDate
 
 __all__ = [
     "decimalDate",
@@ -30,143 +30,8 @@ __all__ = [
 sys.setrecursionlimit(9001)
 
 
-def decimalDate(date: str, fmt: str = "%Y-%m-%d", variable: bool = False):
-    """
-    Converts calendar dates in specified format to decimal date.
 
-    A decimal date represents the fraction of the year that has passed by the given date.
-
-    Parameters:
-    date (str): The date to be converted.
-    fmt (str): The format of the input date string. Default is "%Y-%m-%d".
-    variable (bool): If True, allows for variable date precision. Default is False.
-
-    Returns:
-    float: The decimal representation of the date.
-
-    Notes:
-    - If `variable` is True, the function adjusts the format to match the available precision in the date.
-    - For example, a date like "2023" will be interpreted as 2023 Jan 01, while "2023-05" will be interpreted as 2023 May 01.
-
-    Examples:
-    >>> decimalDate("2023-05-23")
-    2023.3890410958904
-    >>> decimalDate("2023", fmt="%Y", variable=True)
-    2023.0
-
-    Docstring generated with ChatGPT 4o.
-    """
-    if not fmt:
-        return date
-
-    if variable:  ## if date is variable - extract what is available
-        parts = re.split(r"((?<!%)%[YybBmdjWU])", fmt)
-
-        def has_year(s):
-            return "%y" in s or "%Y" in s
-
-        formats = [
-            # left-to-right Y-m-d -> Y-m -> Y
-            *takewhile(has_year, ["".join(parts[:i]) for i in range(len(parts), 0, -1)]),
-            # right-to-left d-m-Y -> m-Y -> Y
-            *takewhile(has_year, ["".join(parts[i:]) for i in range(len(parts))]),
-        ]
-        for _fmt in formats:
-            try:
-                adatetime = dt.datetime.strptime(date, _fmt)
-                break
-            except ValueError:
-                pass
-        else:
-            adatetime = dt.datetime.strptime(date, fmt)
-    else:
-        adatetime = dt.datetime.strptime(date, fmt)  ## convert to datetime object
-
-    year = adatetime.year  ## get year
-    boy = dt.datetime(year, 1, 1)  ## get beginning of the year
-    eoy = dt.datetime(year + 1, 1, 1)  ## get beginning of next year
-    return year + ((adatetime - boy).total_seconds() / ((eoy - boy).total_seconds()))  ## return fractional year
-
-
-def calendarDate(timepoint: float, fmt: str = "%Y-%m-%d"):
-    """
-    Converts decimal dates to a specified calendar date format.
-
-    A decimal date represents the fraction of the year that has passed by the given timepoint.
-    This function converts it back to a calendar date in the given format.
-
-    Parameters:
-    timepoint (float): The decimal representation of the date.
-    fmt (str): The desired format of the output date string. Default is '%Y-%m-%d'.
-
-    Returns:
-    str: The date in the specified calendar format.
-
-    Examples:
-    >>> calendarDate(2023.3923497267758)
-    '2023-05-24'
-    >>> calendarDate(2023.0, fmt='%Y')
-    '2023'
-
-    Docstring generated with ChatGPT 4o.
-    """
-    year = int(timepoint)
-    rem = timepoint - year
-
-    base = dt.datetime(year, 1, 1)
-    result = base + dt.timedelta(seconds=(base.replace(year=base.year + 1) - base).total_seconds() * rem)
-
-    return dt.datetime.strftime(result, fmt)
-
-
-def convertDate(date_string: str, start: str, end: str):
-    """
-    Converts calendar dates between given formats.
-
-    Parameters:
-    x (str): The date string to be converted.
-    start (str): The format of the input date string.
-    end (str): The desired format of the output date string.
-
-    Returns:
-    str: The date converted to the new format.
-
-    Examples:
-    >>> convertDate('23-05-2023', '%d-%m-%Y', '%Y/%m/%d')
-    '2023/05/23'
-    >>> convertDate('2023/05/23', '%Y/%m/%d', '%B %d, %Y')
-    'May 23, 2023'
-
-    Docstring generated with ChatGPT 4o.
-    """
-    return dt.datetime.strftime(dt.datetime.strptime(date_string, start), end)
-    try:
-        date_obj = dt.datetime.strptime(date_string, start)
-        return dt.datetime.strftime(date_obj, end)
-    except ValueError as e:
-        raise ValueError('Error converting date "%s" from format "%s" to "%s": "%s"' % (date_string, start, end, e))
-
-
-S = TypeVar("S")
-T = TypeVar("T")
-
-
-def _initialized_property(func: Callable[[S], T]):
-    name = func.__name__
-
-    def getter(self: S) -> T:
-        value = getattr(self, f"_{name}", None)
-        if value is None:
-            raise AttributeError(f"{name} is not initialized")
-        return value
-
-    def setter(self: S, value: T):
-        setattr(self, f"_{name}", value)
-
-    return property(getter, setter)
-
-
-class _Branch:
+class Branch:
     """Parent class to tree components (nodes, tips, reticulation events and collapsed nodes)
 
     Attributes:
@@ -198,20 +63,20 @@ class _Branch:
         self.absoluteTime = None
         self.traits = traits or {}
 
-    @_initialized_property
+    @initialized_property
     def length(self) -> float: ...
 
-    @_initialized_property
+    @initialized_property
     def height(self) -> float: ...
 
-    @_initialized_property
+    @initialized_property
     def parent(self) -> "node": ...
 
-    @_initialized_property
+    @initialized_property
     def index(self) -> int: ...
 
 
-class reticulation(_Branch):  ## reticulation class (recombination, conversion, reassortment)
+class reticulation(Branch):  ## reticulation class (recombination, conversion, reassortment)
     """
     Represents a reticulation event in a phylogenetic tree, such as recombination or reassortment.
 
@@ -252,7 +117,7 @@ class reticulation(_Branch):  ## reticulation class (recombination, conversion, 
         return False
 
 
-class clade(_Branch):  ## clade class
+class clade(Branch):  ## clade class
     """
     Represents a collapsed clade in a phylogenetic tree.
 
@@ -295,7 +160,7 @@ class clade(_Branch):  ## clade class
         return False
 
 
-class node(_Branch):  ## node class
+class node(Branch):  ## node class
     """
     Represents a node in a phylogenetic tree.
 
@@ -332,7 +197,7 @@ class node(_Branch):  ## node class
         return True
 
 
-class leaf(_Branch):  ## leaf class
+class leaf(Branch):  ## leaf class
     """
     Represents a leaf in a phylogenetic tree.
 
@@ -464,7 +329,12 @@ class tree:  ## tree class
         self.cur_node = new_leaf  ## current node is now new leaf
         self.Objects.append(self.cur_node)  ## add leaf to all objects in the tree
 
-    def subtree(self, starting_node=None, traverse_condition=None, stem=True):
+    def subtree(
+        self,
+        starting_node: node | None = None,
+        traverse_condition: Callable[..., bool] | None = None,
+        stem: bool = True,
+    ):
         """
         Generate a subtree (as a baltic tree object) from a tree traversal starting from a provided node.
 
@@ -491,9 +361,7 @@ class tree:  ## tree class
         if starting_node is None:
             starting_node = self.root
         if traverse_condition is None:
-
-            def traverse_condition(k):
-                return True
+            traverse_condition = always_true
 
         node = starting_node.parent if stem else starting_node  ## move up a node if we want the stem
 
@@ -657,11 +525,11 @@ class tree:  ## tree class
 
     def traverse_tree(
         self,
-        cur_node=None,
-        include_condition=None,
-        traverse_condition=None,
-        collect=None,
-        verbose=False,
+        cur_node: node | None = None,
+        include_condition: Callable[..., bool] | None = None,
+        traverse_condition: Callable[..., bool] | None = None,
+        collect: list | None = None,
+        verbose: bool = False,
     ):
         """
         Traverses the tree starting from a specified node and collects nodes based on conditions.
@@ -696,23 +564,20 @@ class tree:  ## tree class
                     k.height = None
 
         if traverse_condition is None:
-
-            def traverse_condition(k):
-                return True
+            traverse_condition = always_true
 
         if include_condition is None:
+            include_condition = methodcaller("is_leaflike")
 
-            def include_condition(k):
-                return k.is_leaflike()
+        ## initiate collect list if not initiated
+        collect = collect or []
 
-        if collect is None:  ## initiate collect list if not initiated
-            collect = []
-
-        if (
-            cur_node.parent and cur_node.height is None
-        ):  ## cur_node has a parent - set height if it doesn't have it already
+        assert cur_node is not None
+        if cur_node.parent and cur_node._height is None:
+            ## cur_node has a parent - set height if it doesn't have it already
             cur_node.height = cur_node.length + cur_node.parent.height
-        elif cur_node.height is None:  ## cur_node does not have a parent (root), if height not set before it's zero
+        elif cur_node._height is None:
+            ## cur_node does not have a parent (root), if height not set before it's zero
             cur_node.height = 0.0
 
         if verbose:
@@ -778,7 +643,7 @@ class tree:  ## tree class
             # k.name=d[k.numName] ## change its name
             k.name = d[k.name]  ## change its name
 
-    def sortBranches(self, descending=True, sort_function=None, sortByHeight=True):
+    def sortBranches(self, descending: bool = True, sort_function: Callable | None = None, sortByHeight: bool = True):
         """
         Sort descendants of each node.
 
@@ -799,12 +664,14 @@ class tree:  ## tree class
         mod = -1 if descending else 1
         if sort_function is None:
 
-            def sort_function(k):
+            def func(k):
                 return (
                     (k.is_node(), -len(k.leaves) * mod, k.length * mod)
                     if k.is_node()
                     else (k.is_node(), k.length * mod)
                 )
+
+            sort_function = func
 
         if sortByHeight:  # Sort nodes by height and group nodes and leaves together
             """ Sort descendants of each node. """
@@ -825,7 +692,13 @@ class tree:  ## tree class
                 k.children = children
         self.drawTree()  ## update x and y positions of each branch, since y positions will have changed because of sorting
 
-    def drawTree(self, order=None, width_function=None, pad_nodes=None, verbose=False):
+    def drawTree(
+        self,
+        order: list | None = None,
+        width_function: Callable | None = None,
+        pad_nodes: dict | None = None,
+        verbose: bool = False,
+    ):
         """
         Assign x and y coordinates of each branch in the tree.
 
@@ -861,16 +734,15 @@ class tree:  ## tree class
                 print("Drawing tree with default widths (1 unit for leaf objects, width+1 for clades)")
             skips = [1 if isinstance(x, leaf) else x.width + 1 for x in order]
         else:
-            skips = list(map(width_function, order))
+            skips = [width_function(k) for k in order]
 
         for k in self.Objects:  ## reset coordinates for all objects
             k.x = None
             k.y = None
 
         drawn = {}  ## drawn keeps track of what's been drawn
-        for k in order:  ## iterate over tips
+        for y_idx, k in enumerate(order):  ## iterate over tips
             x = k.height  ## x position is height
-            y_idx = name_order[k.name]  ## assign y index
             y = sum(skips[y_idx:]) - skips[y_idx] / 2.0  ## sum across skips to find y position
 
             k.x = x  ## set x and y coordinates
@@ -2358,7 +2230,9 @@ class tree:  ## tree class
         return ax
 
 
-def untangle(trees: list, cost_function: Callable[..., float] | None = None, iterations: int | None = None, verbose: bool = False):
+def untangle(
+    trees: list, cost_function: Callable[..., float] | None = None, iterations: int | None = None, verbose: bool = False
+):
     """
     Minimise y-axis discrepancies between tips of trees in a list.
     Only the tangling of adjacent trees in the list is minimised, so the order of trees matters.
