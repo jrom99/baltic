@@ -1,7 +1,7 @@
 import datetime as dt
 import re
 from itertools import takewhile
-from typing import TypeVar
+from typing import TypeVar, Callable
 
 
 def decimalDate(date: str, fmt: str = "%Y-%m-%d", variable: bool = False):

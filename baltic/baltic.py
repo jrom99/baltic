@@ -8,7 +8,8 @@ from operator import methodcaller
 from typing import Callable, Literal
 
 from matplotlib.collections import LineCollection
-from .utils import decimalDate, convertDate, calendarDate
+
+from .utils import always_true, calendarDate, convertDate, decimalDate, initialized_property
 
 __all__ = [
     "decimalDate",
@@ -28,7 +29,6 @@ __all__ = [
 ]
 
 sys.setrecursionlimit(9001)
-
 
 
 class Branch:
@@ -73,7 +73,7 @@ class Branch:
     def parent(self) -> "node": ...
 
     @initialized_property
-    def index(self) -> int: ...
+    def index(self) -> int | str: ...
 
 
 class reticulation(Branch):  ## reticulation class (recombination, conversion, reassortment)
@@ -570,7 +570,9 @@ class tree:  ## tree class
             include_condition = methodcaller("is_leaflike")
 
         ## initiate collect list if not initiated
-        collect = collect or []
+        # assumes the side effect of passing collect along
+        if collect is None:
+            collect = []
 
         assert cur_node is not None
         if cur_node.parent and cur_node._height is None:
@@ -2404,9 +2406,7 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
 
             destination = None
             for k in ll.Objects:  ## iterate over branches parsed so far
-                if "label" in k.traits and k.traits["label"] == match.group(
-                    1
-                ):  ## if there's a branch with a matching id
+                if k.traits.get("label", None) == match.group(1):  ## if there's a branch with a matching id
                     if destination is None:  ## not set destination before
                         destination = k  ## destination is matching node
                     else:  ## destination seen before - raise an error (indicates reticulate branch ids are not unique)
