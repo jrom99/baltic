@@ -5,7 +5,7 @@ import re
 import sys
 from functools import reduce
 from operator import methodcaller
-from typing import Callable, Literal
+from typing import Callable, Literal, TypeGuard
 
 from matplotlib.collections import LineCollection
 
@@ -75,6 +75,15 @@ class Branch:
     @initialized_property
     def index(self) -> int | str: ...
 
+    def is_node(self) -> bool:
+        return isinstance(self, node)
+
+    def is_leaf(self) -> bool:
+        return isinstance(self, leaf)
+
+    def is_leaflike(self) -> bool:
+        return isinstance(self, (clade, leaf))
+
 
 class reticulation(Branch):  ## reticulation class (recombination, conversion, reassortment)
     """
@@ -106,15 +115,6 @@ class reticulation(Branch):  ## reticulation class (recombination, conversion, r
         self.height = 0.0
         self.width = 0.5
         self.target = None
-
-    def is_leaflike(self):
-        return True
-
-    def is_leaf(self):
-        return False
-
-    def is_node(self):
-        return False
 
 
 class clade(Branch):  ## clade class
@@ -150,15 +150,6 @@ class clade(Branch):  ## clade class
         self.lastAbsoluteTime = None  ## refers to the absolute time of the highest tip in the collapsed clade
         self.width = 1
 
-    def is_leaflike(self):
-        return True
-
-    def is_leaf(self):
-        return False
-
-    def is_node(self):
-        return False
-
 
 class node(Branch):  ## node class
     """
@@ -187,15 +178,6 @@ class node(Branch):  ## node class
         self.childHeight = None  ## the youngest descendant tip of this node
         self.leaves = set()  ## is a set of tips that are descended from it
 
-    def is_leaflike(self):
-        return False
-
-    def is_leaf(self):
-        return False
-
-    def is_node(self):
-        return True
-
 
 class leaf(Branch):  ## leaf class
     """
@@ -219,15 +201,6 @@ class leaf(Branch):  ## leaf class
     def __init__(self):
         super().__init__("leaf")
         self.name = None  ## name of tip after translation, since BEAST trees will generally have numbers for taxa but will provide a map at the beginning of the file
-
-    def is_leaflike(self):
-        return True
-
-    def is_leaf(self):
-        return True
-
-    def is_node(self):
-        return False
 
 
 class tree:  ## tree class
@@ -783,7 +756,7 @@ class tree:  ## tree class
                     k.children
                 ):  ## all y coordinates of children known
                     if verbose:
-                        (print("Setting node %s coordinates to" % (k.index)),)
+                        print("Setting node %s coordinates to" % (k.index))
                     x = k.height  ## x position is height
                     children_y_coords = [
                         q.y for q in k.children if q.y is not None
@@ -816,6 +789,7 @@ class tree:  ## tree class
         yvalues = [k.y for k in self.Objects]  ## all y values
         self.ySpan = max(yvalues) - min(yvalues) + min(yvalues) * 2  ## determine appropriate y axis span of tree
 
+        assert self.root is not None
         if self.root.is_node():
             self.root.x = min(
                 [q.x - q.length for q in self.root.children if q.x is not None]
