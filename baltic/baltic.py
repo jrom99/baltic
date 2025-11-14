@@ -62,7 +62,7 @@ def decimalDate(date, fmt="%Y-%m-%d", variable=False):
     if delimiter is not None:
         delimit = delimiter.group()
 
-    if variable == True:  ## if date is variable - extract what is available
+    if variable:  ## if date is variable - extract what is available
         if delimit is not None:
             dateL = len(date.split(delimit))  ## split date based on symbol
         else:
@@ -467,7 +467,8 @@ class tree:  ## tree class
         if starting_node is None:
             starting_node = self.root
         if traverse_condition is None:
-            traverse_condition = lambda k: True
+            def traverse_condition(k):
+                return True
 
         node = (
             starting_node.parent if stem else starting_node
@@ -632,10 +633,9 @@ class tree:  ## tree class
         singleton = len(nodes) == 0
 
         hasTraits = False  ## assume tree has no annotations
-        max_annotations = max(
+        max(
             len(k.traits) for k in obs
         )  ## check the largest number of annotations any branch has
-        has_traits = max_annotations > 0
 
         if strictlyBifurcating:
             print("strictly bifurcating tree")  ## report
@@ -679,13 +679,13 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if cur_node == None:  ## if no starting point defined - start from root
-            if verbose == True:
+        if cur_node is None:  ## if no starting point defined - start from root
+            if verbose:
                 print("Initiated traversal from root")
             cur_node = self.root
 
             if (
-                traverse_condition == None and include_condition == None
+                traverse_condition is None and include_condition is None
             ):  ## reset heights if traversing from scratch
                 for k in self.Objects:  ## reset various parameters
                     if k.is_node():
@@ -693,24 +693,26 @@ class tree:  ## tree class
                         k.childHeight = None
                     k.height = None
 
-        if traverse_condition == None:
-            traverse_condition = lambda k: True
-        if include_condition == None:
-            include_condition = lambda k: k.is_leaflike()
+        if traverse_condition is None:
+            def traverse_condition(k):
+                return True
+        if include_condition is None:
+            def include_condition(k):
+                return k.is_leaflike()
 
-        if collect == None:  ## initiate collect list if not initiated
+        if collect is None:  ## initiate collect list if not initiated
             collect = []
 
         if (
-            cur_node.parent and cur_node.height == None
+            cur_node.parent and cur_node.height is None
         ):  ## cur_node has a parent - set height if it doesn't have it already
             cur_node.height = cur_node.length + cur_node.parent.height
         elif (
-            cur_node.height == None
+            cur_node.height is None
         ):  ## cur_node does not have a parent (root), if height not set before it's zero
             cur_node.height = 0.0
 
-        if verbose == True:
+        if verbose:
             print("at %s (%s)" % (cur_node.index, cur_node.branchType))
 
         if include_condition(cur_node):  ## test if interested in cur_node
@@ -725,7 +727,7 @@ class tree:  ## tree class
             for child in filter(
                 traverse_condition, cur_node.children
             ):  ## only traverse through children we're interested
-                if verbose == True:
+                if verbose:
                     print("visiting child %s" % (child.index))
                 self.traverse_tree(
                     cur_node=child,
@@ -734,7 +736,7 @@ class tree:  ## tree class
                     verbose=verbose,
                     collect=collect,
                 )  ## recurse through children
-                if verbose == True:
+                if verbose:
                     print("child %s done" % (child.index))
             assert len(cur_node.children) > 0, (
                 "Tried traversing through hanging node without children. Index: %s"
@@ -771,7 +773,7 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if d == None and self.tipMap != None:
+        if d is None and self.tipMap is not None:
             d = self.tipMap
 
         if d is None:
@@ -800,12 +802,11 @@ class tree:  ## tree class
         """
 
         mod = -1 if descending else 1
-        if sort_function == None:
-            sort_function = (
-                lambda k: (k.is_node(), -len(k.leaves) * mod, k.length * mod)
-                if k.is_node()
-                else (k.is_node(), k.length * mod)
-            )
+        if sort_function is None:
+            def sort_function(k):
+                return ((k.is_node(), -len(k.leaves) * mod, k.length * mod)
+                            if k.is_node()
+                            else (k.is_node(), k.length * mod))
         if sortByHeight:  # Sort nodes by height and group nodes and leaves together
             """ Sort descendants of each node. """
 
@@ -844,20 +845,20 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if order == None:
+        if order is None:
             order = self.traverse_tree(
                 include_condition=lambda k: k.is_leaflike()
             )  ## order is a list of tips recovered from a tree traversal to make sure they're plotted in the correct order along the vertical tree dimension
-            if verbose == True:
+            if verbose:
                 print("Drawing tree in pre-order")
         else:
-            if verbose == True:
+            if verbose:
                 print("Drawing tree with provided order")
 
         name_order = {x.name: i for i, x in enumerate(order)}
         assert len(name_order) == len(order), "Non-unique names present in tree"
-        if width_function == None:
-            if verbose == True:
+        if width_function is None:
+            if verbose:
                 print(
                     "Drawing tree with default widths (1 unit for leaf objects, width+1 for clades)"
                 )
@@ -881,7 +882,7 @@ class tree:  ## tree class
             k.y = y
             drawn[k.index] = None  ## remember that this objects has been drawn
 
-        if pad_nodes != None:  ## will be padding nodes
+        if pad_nodes is not None:  ## will be padding nodes
             for n in pad_nodes:  ## iterate over nodes whose descendants will be padded
                 idx = (
                     sorted([name_order[lf] for lf in n.leaves])
@@ -910,19 +911,19 @@ class tree:  ## tree class
         while len(drawn) != len(
             self.Objects
         ):  # keep drawing the tree until everything is drawn
-            if verbose == True:
+            if verbose:
                 print("Drawing iteration %d" % (len(drawn)))
             for k in filter(
                 lambda w: w.index not in drawn, self.getInternal()
             ):  ## iterate through internal nodes that have not been drawn
-                if len([q.y for q in k.children if q.y != None]) == len(
+                if len([q.y for q in k.children if q.y is not None]) == len(
                     k.children
                 ):  ## all y coordinates of children known
-                    if verbose == True:
+                    if verbose:
                         (print("Setting node %s coordinates to" % (k.index)),)
                     x = k.height  ## x position is height
                     children_y_coords = [
-                        q.y for q in k.children if q.y != None
+                        q.y for q in k.children if q.y is not None
                     ]  ## get all existing y coordinates of the node
                     y = sum(children_y_coords) / float(
                         len(children_y_coords)
@@ -930,7 +931,7 @@ class tree:  ## tree class
                     k.x = x
                     k.y = y
                     drawn[k.index] = None  ## remember that this objects has been drawn
-                    if verbose == True:
+                    if verbose:
                         print("%s (%s branches drawn)" % (k.y, len(drawn)))
                     minYrange = min(
                         [
@@ -964,9 +965,9 @@ class tree:  ## tree class
 
         if self.root.is_node():
             self.root.x = min(
-                [q.x - q.length for q in self.root.children if q.x != None]
+                [q.x - q.length for q in self.root.children if q.x is not None]
             )  ## set root x and y coordinates
-            children_y_coords = [q.y for q in self.root.children if q.y != None]
+            children_y_coords = [q.y for q in self.root.children if q.y is not None]
             self.root.y = sum(children_y_coords) / float(len(children_y_coords))
         else:
             self.root.x = self.root.length
@@ -991,7 +992,7 @@ class tree:  ## tree class
         Docstring generated with ChatGPT 4o.
         """
 
-        if n == None:
+        if n is None:
             total = sum([1 if x.is_leaf() else x.width + 1 for x in self.getExternal()])
             n = self.root  # .children[0]
             for k in self.Objects:
@@ -1005,7 +1006,7 @@ class tree:  ## tree class
             else 2 * math.pi * len(n.leaves) / float(total)
         )
 
-        if n.parent.x == None:
+        if n.parent.x is None:
             n.parent.x = 0.0
             n.parent.y = 0.0
 
@@ -1095,7 +1096,7 @@ class tree:  ## tree class
         collapsedClade.traits = cl.traits
         collapsedClade.width = widthFunction(cl)
 
-        if verbose == True:
+        if verbose:
             print(
                 "Replacing node %s (parent %s) with a clade class"
                 % (cl.index, cl.parent.index)
@@ -1122,7 +1123,7 @@ class tree:  ## tree class
         parent.children.append(collapsedClade)
         self.Objects.append(collapsedClade)
         collapsedClade.parent = parent
-        if self.tipMap != None:
+        if self.tipMap is not None:
             self.tipMap[givenName] = givenName
 
         self.traverse_tree()
@@ -1151,7 +1152,7 @@ class tree:  ## tree class
                 parent.children.append(subtree[0])
                 self.Objects += subtree
                 self.Objects.remove(cl)
-                if self.tipMap != None:
+                if self.tipMap is not None:
                     self.tipMap.pop(cl.name, None)
         self.traverse_tree()
 
@@ -1189,7 +1190,7 @@ class tree:  ## tree class
             nodes_to_delete = list(
                 filter(
                     lambda n: n.is_node()
-                    and collapseIf(n) == True
+                    and collapseIf(n)
                     and n != newTree.root,
                     newTree.Objects,
                 )
@@ -1208,7 +1209,7 @@ class tree:  ## tree class
                     newTree.Objects,
                 )
             )  ## need to look up nodes designated for deletion by their indices, since the tree has been copied and nodes will have new memory addresses
-        if verbose == True:
+        if verbose:
             print(
                 "%s nodes set for collapsing: %s"
                 % (len(nodes_to_delete), [w.index for w in nodes_to_delete])
@@ -1219,7 +1220,7 @@ class tree:  ## tree class
         while (
             len(nodes_to_delete) > 0
         ):  ## as long as there are branches to be collapsed - keep reducing the tree
-            if verbose == True:
+            if verbose:
                 print(
                     "Continuing collapse cycle, %s nodes left" % (len(nodes_to_delete))
                 )
@@ -1230,9 +1231,9 @@ class tree:  ## tree class
                 k.parent.children += zero_node  ## add them to the zero node's parent
                 old_parent = k  ## node to be deleted is the old parent
                 new_parent = k.parent  ## once node is deleted, the parent to all their children will be the parent of the deleted node
-                if new_parent == None:
+                if new_parent is None:
                     new_parent = self.root
-                if verbose == True:
+                if verbose:
                     print(
                         "Removing node %s, attaching children %s to node %s"
                         % (
@@ -1245,7 +1246,7 @@ class tree:  ## tree class
                     if w.parent == old_parent:
                         w.parent = new_parent
                         w.length += old_parent.length
-                        if verbose == True:
+                        if verbose:
                             print("Fixing branch length for node %s" % (w.index))
                 k.parent.children.remove(
                     k
@@ -1258,7 +1259,7 @@ class tree:  ## tree class
                     nodes_to_delete == list(
                         filter(
                             lambda n: n.is_node()
-                            and collapseIf(n) == True
+                            and collapseIf(n)
                             and n != newTree.root,
                             newTree.Objects,
                         )
@@ -1278,7 +1279,7 @@ class tree:  ## tree class
                         if w.index in [q.index for q in designated_nodes]
                     ]
 
-                if verbose == True:
+                if verbose:
                     print("Removing references to node %s" % (k.index))
         newTree.sortBranches()  ## sort the tree to traverse, draw and sort tree to adjust y coordinates
         return newTree  ## return collapsed tree
@@ -1317,27 +1318,28 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if cur_node == None:
+        if cur_node is None:
             cur_node = self.root  # .children[-1]
-        if traits == None:
+        if traits is None:
             traits = set(
                 sum([list(k.traits.keys()) for k in self.Objects], [])
             )  ## fetch all trait keys
-        if string_fragment == None:
+        if string_fragment is None:
             string_fragment = []
             if nexus:
                 assert not json, "Nexus format not a valid option for JSON output"
-                if verbose == True:
+                if verbose:
                     print("Exporting to NEXUS format")
                 string_fragment.append("#NEXUS\nBegin trees;\ntree TREE1 = [&R] ")
-        if traverse_condition == None:
-            traverse_condition = lambda k: True
+        if traverse_condition is None:
+            def traverse_condition(k):
+                return True
 
         comment = []  ## will hold comment
         if len(traits) > 0:  ## non-empty list of traits to output
             for tr in traits:  ## iterate through keys
                 if tr in cur_node.traits:  ## if key is available
-                    if verbose == True:
+                    if verbose:
                         print(
                             "trait %s available for %s (%s) type: %s"
                             % (
@@ -1349,13 +1351,13 @@ class tree:  ## tree class
                         )
                     if isinstance(cur_node.traits[tr], str):  ## string value
                         comment.append('%s="%s"' % (tr, cur_node.traits[tr]))
-                        if verbose == True:
+                        if verbose:
                             print("adding string comment %s" % (comment[-1]))
                     elif isinstance(cur_node.traits[tr], float) or isinstance(
                         cur_node.traits[tr], int
                     ):  ## float or integer
                         comment.append("%s=%s" % (tr, cur_node.traits[tr]))
-                        if verbose == True:
+                        if verbose:
                             print("adding numeric comment %s" % (comment[-1]))
                     elif isinstance(cur_node.traits[tr], list):  ## lists
                         rangeComment = []
@@ -1371,16 +1373,16 @@ class tree:  ## tree class
                             ):  ## list of lists, example complete history annotated on tree
                                 rangeComment.append("{{{}}}".format(",".join(val)))
                         comment.append("%s={%s}" % (tr, ",".join(rangeComment)))
-                        if verbose == True:
+                        if verbose:
                             print("adding range comment %s" % (comment[-1]))
-                elif verbose == True:
+                elif verbose:
                     print(
                         "trait %s unavailable for %s (%s)"
                         % (tr, cur_node.index, cur_node.branchType)
                     )
 
         if cur_node.is_node():
-            if verbose == True:
+            if verbose:
                 print("node: %s" % (cur_node.index))
             string_fragment.append("(")
             traverseChildren = list(filter(traverse_condition, cur_node.children))
@@ -1390,7 +1392,7 @@ class tree:  ## tree class
             for c, child in enumerate(
                 traverseChildren
             ):  ## iterate through children of node if they satisfy traverse condition
-                if verbose == True:
+                if verbose:
                     print(
                         "moving to child %s of node %s" % (child.index, cur_node.index)
                     )
@@ -1411,7 +1413,7 @@ class tree:  ## tree class
             string_fragment.append(")")  ## last child, node terminates
 
         elif cur_node.is_leaf():
-            if rename == None:
+            if rename is None:
                 treeName = cur_node.name  ## designated numName
             else:
                 assert isinstance(rename, dict), 'Variable "rename" is not a dictionary'
@@ -1420,18 +1422,18 @@ class tree:  ## tree class
                 )
                 treeName = rename[cur_node.name]
 
-            if verbose == True:
+            if verbose:
                 print("leaf: %s (%s)" % (cur_node.index, treeName))
             string_fragment.append("%s%s%s" % (quotechar, treeName, quotechar))
 
         if len(comment) > 0:
-            if verbose == True:
+            if verbose:
                 print("adding comment to %s" % (cur_node.index))
             comment = ",".join(comment)
             comment = "[&" + comment + "]"
             string_fragment.append("%s" % (comment))  ## end of node, add annotations
 
-        if verbose == True:
+        if verbose:
             print("adding branch length to %s" % (cur_node.index))
         string_fragment.append(
             ":%8f" % (cur_node.length)
@@ -1439,9 +1441,9 @@ class tree:  ## tree class
 
         if cur_node == self.root:  # .children[-1]:
             string_fragment.append(";")
-            if nexus == True:
+            if nexus:
                 string_fragment.append("\nEnd;")
-            if verbose == True:
+            if verbose:
                 print("finished")
             return "".join(string_fragment)
 
@@ -1473,7 +1475,7 @@ class tree:  ## tree class
             for a, tipA in enumerate(all_children):
                 for tipB in all_children[a + 1 :]:
                     if (
-                        tmrcaMatrix[tipA][tipB] == None
+                        tmrcaMatrix[tipA][tipB] is None
                         or tmrcaMatrix[tipA][tipB] <= k.absoluteTime
                     ):  ## if node's time is more recent than previous entry - set new TMRCA value for pair of tips
                         tmrcaMatrix[tipA][tipB] = k.absoluteTime
@@ -1502,29 +1504,29 @@ class tree:  ## tree class
         assert len(keep) > 0, "No tips given to reduce the tree to."
         assert len([k for k in keep if not k.is_leaflike()]) == 0, (
             "Embedding contains %d branches that are not leaf-like."
-            % (len([k for k in keep if k.is_leaflike() == False]))
+            % (len([k for k in keep if not k.is_leaflike()]))
         )
-        if verbose == True:
+        if verbose:
             print("Preparing branch hash for keeping %d branches" % (len(keep)))
         branch_hash = {k.index: k for k in keep}
         embedding = []
-        if verbose == True:
+        if verbose:
             print("Deep copying tree")
         reduced_tree = copy.deepcopy(self)  ## new tree object
         for k in reduced_tree.Objects:  ## deep copy branches from current tree
             if k.index in branch_hash:  ## if branch is designated as one to keep
                 cur_b = k
-                if verbose == True:
+                if verbose:
                     print("Traversing to root from %s" % (cur_b.index))
                 while cur_b != reduced_tree.root:  ## descend to root
-                    if verbose == True:
+                    if verbose:
                         print(
                             "at %s root: %s" % (cur_b.index, cur_b == reduced_tree.root)
                         )
                     embedding.append(cur_b)  ## keep track of the path to root
                     cur_b = cur_b.parent
         embedding.append(reduced_tree.root)  ## add root to embedding
-        if verbose == True:
+        if verbose:
             print(
                 "Finished extracting embedding with %s branches (%s tips, %s nodes)"
                 % (
@@ -1538,7 +1540,7 @@ class tree:  ## tree class
         reduced_tree.Objects = sorted(
             list(embedding), key=lambda x: x.height
         )  ## assign branches that are kept to new tree's Objects
-        if verbose == True:
+        if verbose:
             print("Pruning untraversed lineages")
         for k in reduced_tree.getInternal():  ## iterate through reduced tree
             k.children = [
@@ -1550,7 +1552,7 @@ class tree:  ## tree class
 
         reduced_tree.fixHangingNodes()
 
-        if verbose == True:
+        if verbose:
             print("Last traversal and branch sorting")
         reduced_tree.traverse_tree()  ## traverse
         reduced_tree.sortBranches()  ## sort
@@ -1578,7 +1580,7 @@ class tree:  ## tree class
             [
                 k
                 for k in self.Objects
-                if getattr(k.parent, attr) != None
+                if getattr(k.parent, attr) is not None
                 and getattr(k.parent, attr) < t <= getattr(k, attr)
                 and condition(k)
             ]
@@ -1648,11 +1650,11 @@ class tree:  ## tree class
         """
         select = list(filter(attrs, self.Objects))
 
-        if len(select) == 0 and warn == True:
+        if len(select) == 0 and warn:
             raise Exception(
                 "No branches satisfying function were found amongst branches"
             )
-        elif len(select) == 0 and warn == False:
+        elif len(select) == 0 and not warn:
             return []
         elif len(select) == 1:
             return select[-1]
@@ -1681,14 +1683,14 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if which == None:
+        if which is None:
             branches = self.Objects
         else:
             branches = filter(which, self.Objects)
 
-        if use_trait == False:
+        if not use_trait:
             params = [getattr(k, statistic) for k in branches if hasattr(k, statistic)]
-        elif use_trait == True:
+        elif use_trait:
             params = [k.traits[statistic] for k in branches if statistic in k.traits]
         return params
 
@@ -1745,15 +1747,19 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if target == None:
-            target = lambda k: k.is_leaf()
-        if x_attr == None:
-            x_attr = lambda k: k.x
-        if y_attr == None:
-            y_attr = lambda k: k.y
-        if text == None:
-            text = lambda k: k.name
-        if zorder == None:
+        if target is None:
+            def target(k):
+                return k.is_leaf()
+        if x_attr is None:
+            def x_attr(k):
+                return k.x
+        if y_attr is None:
+            def y_attr(k):
+                return k.y
+        if text is None:
+            def text(k):
+                return k.name
+        if zorder is None:
             zorder = 4
         local_kwargs = dict(kwargs)
         if "verticalalignment" not in local_kwargs:
@@ -1795,15 +1801,19 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if target == None:
-            target = lambda k: k.is_leaf()
-        if x_attr == None:
-            x_attr = lambda k: k.x
-        if y_attr == None:
-            y_attr = lambda k: k.y
-        if text == None:
-            text = lambda k: k.name
-        if zorder == None:
+        if target is None:
+            def target(k):
+                return k.is_leaf()
+        if x_attr is None:
+            def x_attr(k):
+                return k.x
+        if y_attr is None:
+            def y_attr(k):
+                return k.y
+        if text is None:
+            def text(k):
+                return k.name
+        if zorder is None:
             zorder = 4
 
         for k in filter(target, self.Objects):
@@ -1878,25 +1888,30 @@ class tree:  ## tree class
         Docstring generated with ChatGPT 4o.
         """
 
-        if target == None:
-            target = lambda k: k.is_leaf()
-        if x_attr == None:
-            x_attr = lambda k: k.x
-        if y_attr == None:
-            y_attr = lambda k: k.y
-        if text == None:
-            text = lambda k: k.name
-        if zorder == None:
+        if target is None:
+            def target(k):
+                return k.is_leaf()
+        if x_attr is None:
+            def x_attr(k):
+                return k.x
+        if y_attr is None:
+            def y_attr(k):
+                return k.y
+        if text is None:
+            def text(k):
+                return k.name
+        if zorder is None:
             zorder = 4
 
         circ_s = circStart * math.pi * 2
         circ = circFrac * math.pi * 2
 
         allXs = list(map(x_attr, self.Objects))
-        if normaliseHeight == None:
-            normaliseHeight = lambda value: (value - min(allXs)) / (
-                max(allXs) - min(allXs)
-            )
+        if normaliseHeight is None:
+            def normaliseHeight(value):
+                return (value - min(allXs)) / (
+                            max(allXs) - min(allXs)
+                        )
 
         for k in filter(target, self.Objects):  ## iterate over branches
             local_kwargs = dict(kwargs)  ## copy global kwargs into a local version
@@ -1968,24 +1983,29 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if target == None:
-            target = lambda k: k.is_leaf()
-        if x_attr == None:
-            x_attr = lambda k: k.x
-        if y_attr == None:
-            y_attr = lambda k: k.y
-        if size == None:
+        if target is None:
+            def target(k):
+                return k.is_leaf()
+        if x_attr is None:
+            def x_attr(k):
+                return k.x
+        if y_attr is None:
+            def y_attr(k):
+                return k.y
+        if size is None:
             size = 40
-        if colour == None:
-            colour = lambda f: "k"
-        if zorder == None:
+        if colour is None:
+            def colour(f):
+                return "k"
+        if zorder is None:
             zorder = 3
 
-        if outline == None:
+        if outline is None:
             outline = True
-        if outline_size == None:
-            outline_size = lambda k: size(k) * 2 if callable(size) else size * 2
-        if outline_colour == None:
+        if outline_size is None:
+            def outline_size(k):
+                return size(k) * 2 if callable(size) else size * 2
+        if outline_colour is None:
             outline_colour = "k"
 
         xs = []
@@ -2067,17 +2087,20 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if target == None:
-            target = lambda k: True
-        if x_attr == None:
-            x_attr = lambda k: k.x
-        if y_attr == None:
-            y_attr = lambda k: k.y
-        if width == None:
+        if target is None:
+            def target(k):
+                return True
+        if x_attr is None:
+            def x_attr(k):
+                return k.x
+        if y_attr is None:
+            def y_attr(k):
+                return k.y
+        if width is None:
             width = 2
-        if colour == None:
+        if colour is None:
             colour = "k"
-        if connection_type == None:
+        if connection_type is None:
             connection_type = "baltic"
         assert connection_type in ["baltic", "direct", "elbow"], (
             'Unrecognised drawing type "%s"' % (connection_type)
@@ -2173,15 +2196,18 @@ class tree:  ## tree class
         Docstring generated with ChatGPT 4o.
         """
 
-        if target == None:
-            target = lambda k: True
-        if x_attr == None:
-            x_attr = lambda k: k.x
-        if y_attr == None:
-            y_attr = lambda k: k.y
-        if colour == None:
+        if target is None:
+            def target(k):
+                return True
+        if x_attr is None:
+            def x_attr(k):
+                return k.x
+        if y_attr is None:
+            def y_attr(k):
+                return k.y
+        if colour is None:
             colour = "k"
-        if width == None:
+        if width is None:
             width = 2
 
         if inwardSpace < 0:
@@ -2195,17 +2221,17 @@ class tree:  ## tree class
         circ = circFrac * math.pi * 2
 
         allXs = list(map(x_attr, self.Objects))
-        if normaliseHeight == None:
-            normaliseHeight = lambda value: (value - min(allXs)) / (
-                max(allXs) - min(allXs)
-            )
-        linspace = (
-            lambda start, stop, n: list(
-                start + ((stop - start) / (n - 1)) * i for i in range(n)
-            )
-            if n > 1
-            else stop
-        )
+        if normaliseHeight is None:
+            def normaliseHeight(value):
+                return (value - min(allXs)) / (
+                            max(allXs) - min(allXs)
+                        )
+        def linspace(start, stop, n):
+            return (list(
+                        start + ((stop - start) / (n - 1)) * i for i in range(n)
+                    )
+                    if n > 1
+                    else stop)
 
         for k in filter(target, self.Objects):  ## iterate over branches
             x = normaliseHeight(x_attr(k) + inwardSpace)  ## get branch x position
@@ -2314,25 +2340,30 @@ class tree:  ## tree class
         Docstring generated with ChatGPT 4o.
         """
 
-        if target == None:
-            target = lambda k: k.is_leaf()
-        if x_attr == None:
-            x_attr = lambda k: k.x
-        if y_attr == None:
-            y_attr = lambda k: k.y
-        if size == None:
+        if target is None:
+            def target(k):
+                return k.is_leaf()
+        if x_attr is None:
+            def x_attr(k):
+                return k.x
+        if y_attr is None:
+            def y_attr(k):
+                return k.y
+        if size is None:
             size = 40
-        if colour == None:
+        if colour is None:
             colour = "k"
-        if zorder == None:
+        if zorder is None:
             zorder = 3
 
-        if outline == None:
+        if outline is None:
             outline = True
-        if outline_size == None:
-            outline_size = lambda k: size(k) * 2 if callable(size) else size * 2
-        if outline_colour == None:
-            outline_colour = lambda k: "k"
+        if outline_size is None:
+            def outline_size(k):
+                return size(k) * 2 if callable(size) else size * 2
+        if outline_colour is None:
+            def outline_colour(k):
+                return "k"
 
         if inwardSpace < 0:
             inwardSpace -= self.treeHeight
@@ -2341,17 +2372,17 @@ class tree:  ## tree class
         circ = circFrac * math.pi * 2
 
         allXs = list(map(x_attr, self.Objects))
-        if normaliseHeight == None:
-            normaliseHeight = lambda value: (value - min(allXs)) / (
-                max(allXs) - min(allXs)
-            )
-        linspace = (
-            lambda start, stop, n: list(
-                start + ((stop - start) / (n - 1)) * i for i in range(n)
-            )
-            if n > 1
-            else stop
-        )
+        if normaliseHeight is None:
+            def normaliseHeight(value):
+                return (value - min(allXs)) / (
+                            max(allXs) - min(allXs)
+                        )
+        def linspace(start, stop, n):
+            return (list(
+                        start + ((stop - start) / (n - 1)) * i for i in range(n)
+                    )
+                    if n > 1
+                    else stop)
 
         xs = []
         ys = []
@@ -2433,10 +2464,11 @@ def untangle(trees, cost_function=None, iterations=None, verbose=False):
     """
     from itertools import permutations
 
-    if iterations == None:
+    if iterations is None:
         iterations = 3
-    if cost_function == None:
-        cost_function = lambda pair: math.pow(abs(pair[0] - pair[1]), 2)
+    if cost_function is None:
+        def cost_function(pair):
+            return math.pow(abs(pair[0] - pair[1]), 2)
 
     y_positions = {
         T: {k.name: k.y for k in T.getExternal()} for T in trees
@@ -2465,7 +2497,7 @@ def untangle(trees, cost_function=None, iterations=None, verbose=False):
                     raise RuntimeWarning(
                         "Node is too polytomic and untangling will take an astronomically long time"
                     )
-                if verbose == True:
+                if verbose:
                     print(len(k.children))
                 for permutation in permutations(
                     k.children
@@ -2531,7 +2563,7 @@ def make_tree(data, ll=None, verbose=False):
         "non_beast_tip": r"(\(|,)(\'|\")*([^\(\):\[\'\"#]+)(\'|\"|)*(\[)*",  # Pattern to match tips with unencoded names
     }
     if (
-        isinstance(data, str) == False
+        not isinstance(data, str)
     ):  ## tree string is not an instance of string (could be unicode) - convert
         data = str(data)
 
@@ -2541,7 +2573,7 @@ def make_tree(data, ll=None, verbose=False):
         "Improperly formatted string: must have matching parentheses"
     )
 
-    if ll == None:  ## calling without providing a tree object - create one
+    if ll is None:  ## calling without providing a tree object - create one
         ll = tree()
     i = 0  ## is an adjustable index along the tree string, it is incremented to advance through the string
     stored_i = None  ## store the i at the end of the loop, to make sure we haven't gotten stuck somewhere in an infinite loop
@@ -2549,7 +2581,7 @@ def make_tree(data, ll=None, verbose=False):
     while i < len(
         data
     ):  ## while there's characters left in the tree string - loop away
-        if stored_i == i and verbose == True:
+        if stored_i == i and verbose:
             print("%d >%s<" % (i, data[i]))
 
         assert stored_i != i, (
@@ -2559,7 +2591,7 @@ def make_tree(data, ll=None, verbose=False):
         stored_i = i  # Store the current index at the end of the loop to check for infinite loops
 
         if data[i] == "(":  ## look for new nodes
-            if verbose == True:
+            if verbose:
                 print("%d adding node" % (i))
             ll.add_node(i)  ## add node to current node in tree ll
             i += 1  ## advance in tree string by one character
@@ -2568,7 +2600,7 @@ def make_tree(data, ll=None, verbose=False):
             patterns["beast_tip"], data[i - 1 : i + 100]
         )  ## look for tips in BEAST format (integers).
         if match:
-            if verbose == True:
+            if verbose:
                 print("%d adding leaf (BEAST) %s" % (i, match.group(2)))
             ll.add_leaf(i, match.group(2))  ## add tip
             i += len(
@@ -2579,7 +2611,7 @@ def make_tree(data, ll=None, verbose=False):
             patterns["non_beast_tip"], data[i - 1 : i + 200]
         )  ## look for tips with unencoded names - if the tips have some unusual format you'll have to modify this
         if match:
-            if verbose == True:
+            if verbose:
                 print("%d adding leaf (non-BEAST) %s" % (i, match.group(3)))
             ll.add_leaf(i, match.group(3).strip('"').strip("'"))  ## add tip
             i += (
@@ -2592,7 +2624,7 @@ def make_tree(data, ll=None, verbose=False):
             r"\)([0-9]+)\[", data[i - 1 : i + 100]
         )  ## look for multitype tree singletons.
         if match:
-            if verbose == True:
+            if verbose:
                 print("%d adding multitype node %s" % (i, match.group(1)))
             i += len(match.group(1))
 
@@ -2600,7 +2632,7 @@ def make_tree(data, ll=None, verbose=False):
             r"[\(,](#[A-Za-z0-9]+)", data[i - 1 : i + 200]
         )  ## look for beginning of reticulate branch
         if match:
-            if verbose == True:
+            if verbose:
                 print("%d adding outgoing reticulation branch %s" % (i, match.group(1)))
             ll.add_reticulation(match.group(1))  ## add reticulate branch
 
@@ -2609,7 +2641,7 @@ def make_tree(data, ll=None, verbose=False):
                 if "label" in k.traits and k.traits["label"] == match.group(
                     1
                 ):  ## if there's a branch with a matching id
-                    if destination == None:  ## not set destination before
+                    if destination is None:  ## not set destination before
                         destination = k  ## destination is matching node
                     else:  ## destination seen before - raise an error (indicates reticulate branch ids are not unique)
                         raise Exception(
@@ -2617,7 +2649,7 @@ def make_tree(data, ll=None, verbose=False):
                             % (match.group(1))
                         )
             if destination:  ## identified destination of this branch
-                if verbose == True:
+                if verbose:
                     print("identified %s destination" % (match.group(1)))
                 ll.cur_node.target = (
                     destination  ## set current node's target as the destination
@@ -2626,7 +2658,7 @@ def make_tree(data, ll=None, verbose=False):
                     destination, "contribution", ll.cur_node
                 )  ## add contributing edge to destination
             else:
-                if verbose == True:
+                if verbose:
                     print("destination of %s not identified yet" % (match.group(1)))
             i += len(match.group()) - 1
 
@@ -2634,7 +2666,7 @@ def make_tree(data, ll=None, verbose=False):
             r"\)(#[A-Za-z0-9]+)", data[i - 1 : i + 200]
         )  ## look for landing point of reticulate branch
         if match:
-            if verbose == True:
+            if verbose:
                 print("%d adding incoming reticulation branch %s" % (i, match.group(1)))
             ll.cur_node.traits["label"] = match.group(1)  ## set node label
 
@@ -2643,7 +2675,7 @@ def make_tree(data, ll=None, verbose=False):
                 if isinstance(k, reticulation) and k.name == match.group(
                     1
                 ):  ## check if any reticulate branches match the origin
-                    if origin == None:  ## origin not identified yet
+                    if origin is None:  ## origin not identified yet
                         origin = k  ## origin is reticulate branch with the correct name
                     else:  ## origin has been identified - shouldn't happen, implies that multiple reticulate branches exist with the same name
                         raise Exception(
@@ -2651,14 +2683,14 @@ def make_tree(data, ll=None, verbose=False):
                             % (match.group(1))
                         )
             if origin:  ## identified origin
-                if verbose == True:
+                if verbose:
                     print("identified %s origin" % (match.group(1)))
                 origin.target = ll.cur_node  ## set origin's landing at this node
                 setattr(
                     ll.cur_node, "contribution", origin
                 )  ## add contributing edge to this node
             else:
-                if verbose == True:
+                if verbose:
                     print("origin of %s not identified yet" % (match.group(1)))
             i += len(match.group()) - 1
 
@@ -2666,7 +2698,7 @@ def make_tree(data, ll=None, verbose=False):
             r"(\:)*\[(&[A-Za-z\_\-{}\,0-9\.\%=\"\'\+!# :\/\(\)\&]+)\]", data[i:]
         )  ## look for MCC comments
         if match:
-            if verbose == True:
+            if verbose:
                 print("%d comment: %s" % (i, match.group(2)))
             comment = match.group(2)
             numerics = re.findall(
@@ -2725,7 +2757,7 @@ def make_tree(data, ll=None, verbose=False):
                     )
                 ll.cur_node.traits[tr] = []
                 for val in micromatch:
-                    val_split = val.split(",")
+                    val.split(",")
                     ll.cur_node.traits[tr].append(val.split(","))
 
             for vals in sets:
@@ -2757,7 +2789,7 @@ def make_tree(data, ll=None, verbose=False):
         )  ## look for old school node labels
 
         if match:
-            if verbose == True:
+            if verbose:
                 print("old school comment found: %s" % (match.group(1)))
             ll.cur_node.traits["label"] = match.group(1)
 
@@ -2767,7 +2799,7 @@ def make_tree(data, ll=None, verbose=False):
             r"(\:)*([0-9\.\-Ee]+)", data[i : i + 100]
         )  ## look for branch lengths without comments
         if micromatch is not None:
-            if verbose == True:
+            if verbose:
                 print(
                     "adding branch length (%d) %.6f" % (i, float(micromatch.group(2)))
                 )
@@ -2876,7 +2908,7 @@ def loadNewick(
             ll = make_tree(
                 l[treeString_start:], verbose=verbose
             )  ## send tree string to make_tree function
-            if verbose == True:
+            if verbose:
                 print("Identified tree string")
 
     assert ll, "Regular expression failed to find tree string"
@@ -2885,7 +2917,7 @@ def loadNewick(
     if sortBranches:
         ll.sortBranches()  ## traverses tree, sorts branches, draws tree
 
-    if absoluteTime == True:
+    if absoluteTime:
         tip_dates = []
         tip_names = []
         for k in ll.getExternal():
@@ -2953,7 +2985,7 @@ def loadNexus(
         match = re.search("Dimensions ntax=([0-9]+);", l)
         if match:
             tip_num = int(match.group(1))
-            if verbose == True:
+            if verbose:
                 print("File should contain %d taxa" % (tip_num))
 
         match = re.search(treestring_regex, l)
@@ -2962,14 +2994,14 @@ def loadNexus(
             ll = make_tree(
                 l[treeString_start:], verbose=verbose
             )  ## send tree string to make_tree function
-            if verbose == True:
+            if verbose:
                 print("Identified tree string")
 
         if tip_flag:
             match = re.search("([0-9]+) ([A-Za-z\-\_\/\.'0-9 \|?]+)", l)
             if match:
                 tips[match.group(1)] = match.group(2).strip('"').strip("'")
-                if verbose == True:
+                if verbose:
                     print(
                         "Identified tip translation %s: %s"
                         % (match.group(1), tips[match.group(1)])
@@ -2989,7 +3021,7 @@ def loadNexus(
     if len(tips) > 0:
         ll.renameTips(tips)  ## renames tips from numbers to actual names
         ll.tipMap = tips
-    if absoluteTime == True:
+    if absoluteTime:
         tip_dates = []
         tip_names = []
         for k in ll.getExternal():
@@ -3050,30 +3082,30 @@ def loadJSON(
             [
                 entry
                 for entry in ["name"] + required_keys
-                if (entry in json_translation) == False
+                if entry not in json_translation
             ]
         )
     )
-    if verbose == True:
+    if verbose:
         print("Reading JSON")
 
     if isinstance(
         json_object, str
     ):  ## string provided - either nextstrain URL or local path
         if "nextstrain.org" in json_object:  ## nextsrain.org in URL - request it
-            if verbose == True:
+            if verbose:
                 print("Assume URL provided, loading JSON from nextstrain.org")
             import requests
             from io import BytesIO as csio
 
             auspice_json = json.load(csio(requests.get(json_object).content))
         else:  ## not nextstrain.org URL - assume local path to auspice v2 json
-            if verbose == True:
+            if verbose:
                 print("Loading JSON from local path")
             with open(json_object) as json_data:
                 auspice_json = json.load(json_data)
     else:  ## not string, assume auspice v2 json object given
-        if verbose == True:
+        if verbose:
             print("Loading JSON from object given")
         auspice_json = json_object
 
@@ -3091,7 +3123,7 @@ def loadJSON(
         "Cannot use both absolute time and branch length, include only one in json_translation dictionary."
     )
 
-    if verbose == True:
+    if verbose:
         print("Setting baltic traits from JSON")
     for k in ll.Objects:  ## make node attributes easier to access
         for key in k.traits["node_attrs"]:
@@ -3151,14 +3183,14 @@ def loadJSON(
                     cur_branch - par_branch if cur_branch and par_branch else 0.0
                 )  ## difference between current and parent is branch length (or, if parent unavailabel it's 0)
 
-    if verbose == True:
+    if verbose:
         print("Traversing and drawing tree")
 
     ll.traverse_tree(verbose=verbose)
     ll.drawTree()
-    if stats == True:
+    if stats:
         ll.treeStats()  ## initial traversal, checks for stats
-    if sort == True:
+    if sort:
         ll.sortBranches()  ## traverses tree, sorts branches, draws tree
 
     cmap = {}

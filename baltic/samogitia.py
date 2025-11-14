@@ -147,7 +147,7 @@ begin = dt.datetime.now()  ## start timer
 
 for line in treefile:  ## iterate through each line
     ###################################################################################
-    if plate == True and "state" not in line.lower():
+    if plate and "state" not in line.lower():
         cerberus = re.search(
             "Dimensions ntax\=([0-9]+)\;", line
         )  ## Extract useful information from the bits preceding the actual trees.
@@ -158,12 +158,12 @@ for line in treefile:  ## iterate through each line
             taxonlist = True  ## taxon list to follow
 
         if (
-            taxonlist == True and ";" not in line and "Translate" not in line
+            taxonlist and ";" not in line and "Translate" not in line
         ):  ## remember tip encodings
             cerberus = re.search("([0-9]+) (['\"A-Za-z0-9\?\|\-\_\.\/]+)", line)
             tips[cerberus.group(1)] = cerberus.group(2).strip("'")
 
-    if "tree STATE_" in line and plate == True:  ## starting actual analysis
+    if "tree STATE_" in line and plate:  ## starting actual analysis
         plate = False
         assert tipNum == len(tips), (
             "Expected number of tips: %s\nNumber of tips found: %s"
@@ -251,7 +251,7 @@ for line in treefile:  ## iterate through each line
                 tformat
             )  ## search pattern + brackets on actual calendar date
             if (
-                calibration == True
+                calibration
             ):  ## Calibrate tree so everything has a known position in actual time
                 tipDatesRaw = [dateCerberus.search(x).group(1) for x in tips.values()]
                 tipDates = []
@@ -290,7 +290,7 @@ for line in treefile:  ## iterate through each line
                 )  ## output to file, separated by tabs
             ###################################################
             if "tmrcas" in analyses:
-                assert calibration == True, (
+                assert calibration, (
                     "This analysis type requires time-calibrated trees"
                 )
                 nodes = {
@@ -329,7 +329,7 @@ for line in treefile:  ## iterate through each line
                 outfile.write("\t%s" % ("\t".join(outTMRCA)))
             ###################################################
             if "Sharp" in analyses:
-                assert calibration == True, (
+                assert calibration, (
                     "This analysis type requires time-calibrated trees"
                 )
                 assert len(analyses) == 1, (
@@ -363,7 +363,7 @@ for line in treefile:  ## iterate through each line
                 outfile.write("\t%s" % ("\t".join(outSharp)))
             ###################################################
             if "transitions" in analyses:
-                assert calibration == True, (
+                assert calibration, (
                     "This analysis type requires time-calibrated trees"
                 )
                 assert len(analyses) == 1, (
@@ -416,7 +416,7 @@ for line in treefile:  ## iterate through each line
                         # print k.index,k.parent.index,k.traits,k.parent.traits,k.traits[traitName]
 
                         if (
-                            proceed == True
+                            proceed
                         ):  ## if at least one valid tip and no hanging nodes
                             subtree = copy.deepcopy(
                                 ll.traverseWithinTrait(k, traitName)
