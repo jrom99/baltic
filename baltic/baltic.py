@@ -87,7 +87,7 @@ def decimalDate(date: str, fmt: str = "%Y-%m-%d", variable: bool = False):
     return year + ((adatetime - boy).total_seconds() / ((eoy - boy).total_seconds()))  ## return fractional year
 
 
-def calendarDate(timepoint, fmt="%Y-%m-%d"):
+def calendarDate(timepoint: float, fmt: str="%Y-%m-%d"):
     """
     Converts decimal dates to a specified calendar date format.
 
@@ -118,7 +118,7 @@ def calendarDate(timepoint, fmt="%Y-%m-%d"):
     return dt.datetime.strftime(result, fmt)
 
 
-def convertDate(date_string, start, end):
+def convertDate(date_string: str, start: str, end: str):
     """
     Converts calendar dates between given formats.
 
