@@ -6,10 +6,9 @@ import re
 import sys
 from functools import reduce
 from itertools import takewhile
-from typing import Callable, Literal
+from typing import Callable, Literal, TypeVar
 
 from matplotlib.collections import LineCollection
-
 
 __all__ = [
     "decimalDate",
@@ -148,16 +147,20 @@ def convertDate(date_string: str, start: str, end: str):
         raise ValueError('Error converting date "%s" from format "%s" to "%s": "%s"' % (date_string, start, end, e))
 
 
-def _initialized_property(func: Callable):
+S = TypeVar("S")
+T = TypeVar("T")
+
+
+def _initialized_property(func: Callable[[S], T]):
     name = func.__name__
 
-    def getter(self):
+    def getter(self: S) -> T:
         value = getattr(self, f"_{name}", None)
         if value is None:
             raise AttributeError(f"{name} is not initialized")
         return value
 
-    def setter(self, value):
+    def setter(self: S, value: T):
         setattr(self, f"_{name}", value)
 
     return property(getter, setter)
@@ -176,6 +179,7 @@ class _Branch:
         traits (dict): Dictionary of traits associated with this object, assigned in `make_tree()` or `collapseSubtree()`
         index (int): The index of the character that defines this object in the tree string, or the parent node in `clade`
     """
+
     branchType: Literal["leaf", "node"]
     x: float | None
     y: float | None
@@ -227,6 +231,7 @@ class reticulation(_Branch):  ## reticulation class (recombination, conversion, 
 
     Docstring generated with ChatGPT 4o.
     """
+
     def __init__(self, name: str):
         super().__init__("leaf")
 
@@ -270,6 +275,7 @@ class clade(_Branch):  ## clade class
 
     Docstring generated with ChatGPT 4o.
     """
+
     def __init__(self, givenName: str):
         super().__init__("leaf")
         self.name = givenName  ## the pretend tip name for the clade
@@ -309,6 +315,7 @@ class node(_Branch):  ## node class
 
     Docstring generated with ChatGPT 4o.
     """
+
     def __init__(self):
         super().__init__("node")
         self.children = []  ## a list of descendent branches of this node
@@ -391,7 +398,7 @@ class tree:  ## tree class
         self.mostRecent = None
         self.ySpan = 0.0
 
-    def add_reticulation(self, name):
+    def add_reticulation(self, name: str):
         """
         Adds a reticulate branch to the tree.
 
@@ -407,7 +414,7 @@ class tree:  ## tree class
         self.Objects.append(ret)
         self.cur_node = ret
 
-    def add_node(self, i):
+    def add_node(self, i: int):
         """
         Attaches a new node to the current node.
 
@@ -2351,7 +2358,7 @@ class tree:  ## tree class
         return ax
 
 
-def untangle(trees, cost_function=None, iterations=None, verbose=False):
+def untangle(trees: list, cost_function: Callable[..., float] | None = None, iterations: int | None = None, verbose: bool = False):
     """
     Minimise y-axis discrepancies between tips of trees in a list.
     Only the tangling of adjacent trees in the list is minimised, so the order of trees matters.
@@ -2439,7 +2446,7 @@ def untangle(trees, cost_function=None, iterations=None, verbose=False):
     return trees
 
 
-def make_tree(data, ll=None, verbose=False):
+def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
     """
     Parse a tree string and create a tree object.
 
@@ -2575,17 +2582,17 @@ def make_tree(data, ll=None, verbose=False):
                 print("%d comment: %s" % (i, match.group(2)))
             comment = match.group(2)
             numerics = re.findall(
-                "[,&][A-Za-z\_\.0-9]+=[0-9\-Ee\.]+", comment
+                r"[,&][A-Za-z\_\.0-9]+=[0-9\-Ee\.]+", comment
             )  ## find all entries that have values as floats
             strings = re.findall(
-                "[,&][A-Za-z\_\.0-9]+=[\"|']*[A-Za-z\_0-9\.\+ :\/\(\)\&\-]+[\"|']*",
+                r"[,&][A-Za-z\_\.0-9]+=[\"|']*[A-Za-z\_0-9\.\+ :\/\(\)\&\-]+[\"|']*",
                 comment,
             )  ## strings
             treelist = re.findall(
-                "[,&][A-Za-z\_\.0-9]+={[A-Za-z\_,{}0-9\. :\/\(\)\&]+}", comment
+                r"[,&][A-Za-z\_\.0-9]+={[A-Za-z\_,{}0-9\. :\/\(\)\&]+}", comment
             )  ## complete history logged robust counting (MCMC trees)
-            sets = re.findall('[,&][A-Za-z\_\.0-9\%]+={[A-Za-z\.\-0-9eE,"\_ :\/\(\)\&]+}', comment)  ## sets and ranges
-            figtree = re.findall("\![A-Za-z]+=[A-Za-z0-9# :\/\(\)\&]+", comment)
+            sets = re.findall(r'[,&][A-Za-z\_\.0-9\%]+={[A-Za-z\.\-0-9eE,"\_ :\/\(\)\&]+}', comment)  ## sets and ranges
+            figtree = re.findall(r"\![A-Za-z]+=[A-Za-z0-9# :\/\(\)\&]+", comment)
 
             for vals in strings:
                 tr, val = vals.split("=")
@@ -2712,14 +2719,14 @@ def make_treeJSON(JSONnode, json_translation, ll=None, verbose=False):
 
 def loadNewick(
     tree_path,
-    tip_regex="\|([0-9]+\-[0-9]+\-[0-9]+)",
+    tip_regex=r"\|([0-9]+\-[0-9]+\-[0-9]+)",
     date_fmt="%Y-%m-%d",
     variableDate=True,
     absoluteTime=False,
     verbose=False,
     sortBranches=True,
 ):
-    """
+    r"""
     Load a tree from a Newick file and process it.
 
     Parameters:
@@ -2781,15 +2788,15 @@ def loadNewick(
 
 def loadNexus(
     tree_path,
-    tip_regex="\|([0-9]+\-[0-9]+\-[0-9]+)",
+    tip_regex=r"\|([0-9]+\-[0-9]+\-[0-9]+)",
     date_fmt="%Y-%m-%d",
-    treestring_regex="tree [A-Za-z\_]+([0-9]+)",
+    treestring_regex=r"tree [A-Za-z\_]+([0-9]+)",
     variableDate=True,
     absoluteTime=True,
     verbose=False,
     sortBranches=True,
 ):
-    """
+    r"""
     Load a tree from a Nexus file and process it.
 
     Parameters:
@@ -2837,7 +2844,7 @@ def loadNexus(
                 print("Identified tree string")
 
         if tip_flag:
-            match = re.search("([0-9]+) ([A-Za-z\-\_\/\.'0-9 \|?]+)", l)
+            match = re.search(r"([0-9]+) ([A-Za-z\-\_\/\.'0-9 \|?]+)", l)
             if match:
                 tips[match.group(1)] = match.group(2).strip('"').strip("'")
                 if verbose:
@@ -3011,5 +3018,6 @@ if __name__ == "__main__":
     import sys
 
     ll = make_tree(sys.argv[1])
+    assert ll is not None
     ll.traverse_tree()
     sys.stdout.write("%s\n" % (ll.treeHeight))
