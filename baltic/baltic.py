@@ -1,8 +1,11 @@
 from matplotlib.collections import LineCollection
-import re, copy, math, json, sys
+import re
+import copy
+import math
+import json
+import sys
 import datetime as dt
 from functools import reduce
-from matplotlib.collections import LineCollection
 
 __all__ = [
     "decimalDate",
