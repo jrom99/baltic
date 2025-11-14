@@ -1,2 +1,14 @@
+# byte-compiled
 .DS_Store
-.pyc
+*.py[codz]
+__pycache__/
+
+# virtual environments
+.env
+.venv
+.envrc
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
