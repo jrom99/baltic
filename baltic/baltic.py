@@ -43,7 +43,7 @@ class Branch:
         height (float): Height of the branch, assigned in `traverse_tree()` or `collapseSubtree()`
         parent (node): Parent node, assigned in `make_tree()` or `collapseSubtree()`
         traits (dict): Dictionary of traits associated with this object, assigned in `make_tree()` or `collapseSubtree()`
-        index (int): The index of the character that defines this object in the tree string, or the parent node in `clade`
+        index (int | str): The index of the character that defines this object in the tree string, or the parent node in `clade`
     """
 
     branchType: Literal["leaf", "node"]
@@ -116,7 +116,9 @@ class reticulation(Branch):  ## reticulation class (recombination, conversion, r
         self.length = 0.0
         self.height = 0.0
         self.width = 0.5
-        self.target = None
+
+    @initialized_property
+    def target(self) -> "node | leaf": ...
 
 
 class clade(Branch):  ## clade class
@@ -146,8 +148,8 @@ class clade(Branch):  ## clade class
     def __init__(self, givenName: str):
         super().__init__("leaf")
         self.name = givenName  ## the pretend tip name for the clade
-        self.subtree = None  ## subtree will contain all the branches that were collapsed
-        self.leaves = None
+        self.subtree: list = []  ## subtree will contain all the branches that were collapsed
+        self.leaves: set[leaf] = set()
         self.lastHeight = None  ## refers to the height of the highest tip in the collapsed clade
         self.lastAbsoluteTime = None  ## refers to the absolute time of the highest tip in the collapsed clade
         self.width = 1
@@ -202,7 +204,11 @@ class leaf(Branch):  ## leaf class
 
     def __init__(self):
         super().__init__("leaf")
-        self.name = None  ## name of tip after translation, since BEAST trees will generally have numbers for taxa but will provide a map at the beginning of the file
+
+    @initialized_property
+    def name(self) -> str:
+        """name of tip after translation, since BEAST trees will generally have numbers for taxa but will provide a map at the beginning of the file"""
+        ...
 
 
 def is_node(obj: Branch) -> TypeGuard[node]:
@@ -239,13 +245,13 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        self.cur_node = node()  ## current node is a new instance of a node class
+        self.cur_node: node | leaf | reticulation | None = node()  ## current node is a new instance of a node class
         self.cur_node.index = "Root"  ## first object in the tree is the root to which the rest gets attached
         self.cur_node.length = 0.0  ## startind node branch length is 0
         self.cur_node.height = 0.0  ## starting node height is 0
         self.root = None  # self.cur_node ## root of the tree is current node
         self.Objects = []  ## tree objects have a flat list of all branches in them
-        self.tipMap = None
+        self.tipMap: dict[str, str] | None = None
         self.treeHeight = 0  ## tree height is the distance between the root and the most recent tip
         self.mostRecent = None
         self.ySpan = 0.0
@@ -262,7 +268,7 @@ class tree:  ## tree class
         ret = reticulation(name)
         ret.index = name
         ret.parent = self.cur_node
-        assert is_node(self.cur_node)
+        assert self.cur_node is not None and is_node(self.cur_node)
         self.cur_node.children.append(ret)
         self.Objects.append(ret)
         self.cur_node = ret
@@ -286,14 +292,14 @@ class tree:  ## tree class
             self.root.length = 0.0
 
         new_node.parent = self.cur_node  ## new node's parent is current node
-        assert is_node(self.cur_node), (
+        assert self.cur_node is not None and is_node(self.cur_node), (
             "Attempted to add a child to a non-node object. Check if tip names have illegal characters like parentheses or commas."
         )
         self.cur_node.children.append(new_node)  ## new node is a child of current node
         self.cur_node = new_node  ## current node is now new node
         self.Objects.append(self.cur_node)  ## add new node to list of objects in the tree
 
-    def add_leaf(self, i, name):
+    def add_leaf(self, i: int, name: str):
         """
         Attaches a new leaf (tip) to the current node.
 
@@ -309,7 +315,7 @@ class tree:  ## tree class
             self.root = new_leaf
 
         new_leaf.parent = self.cur_node  ## leaf's parent is current node
-        assert is_node(self.cur_node), (
+        assert self.cur_node is not None and is_node(self.cur_node), (
             "Attempted to add a child to a non-node object. Check if tip names have illegal characters like parentheses."
         )
         self.cur_node.children.append(new_leaf)  ## assign leaf to parent's children
@@ -388,9 +394,8 @@ class tree:  ## tree class
 
         subtree_set = set(subtree_branches)  ## turn branches into set for quicker look up later
 
-        if (
-            traverse_condition is not None
-        ):  ## didn't use default traverse condition, might need to deal with hanging nodes and prune children
+        if traverse_condition is not None:
+            ## didn't use default traverse condition, might need to deal with hanging nodes and prune children
             for nd in local_tree.getInternal():  ## iterate over nodes
                 nd.children = [
                     child for child in nd.children if child in subtree_set
@@ -398,10 +403,9 @@ class tree:  ## tree class
             local_tree.fixHangingNodes()
 
         if self.tipMap:  ## if original tree has a tipMap dictionary
+            names = {w.name for w in local_tree.getExternal()}
             local_tree.tipMap = {
-                tipNum: self.tipMap[tipNum]
-                for tipNum in self.tipMap
-                if self.tipMap[tipNum] in [w.name for w in local_tree.getExternal()]
+                k: v for k, v in self.tipMap.items() if v in names
             }  ## copy over the relevant tip translations
 
         return local_tree
@@ -611,7 +615,7 @@ class tree:  ## tree class
             self.treeHeight = cur_node.childHeight  ## it's the highest child of the starting node
         return collect
 
-    def renameTips(self, d=None):
+    def renameTips(self, d: dict[str, str] | None = None):
         """
         Rename each tip using a dictionary.
 
@@ -838,7 +842,7 @@ class tree:  ## tree class
         """
 
         if n is None:
-            total = sum([1 if is_leaf(x) else x.width + 1 for x in self.getExternal()])
+            total = sum([1 if isinstance(x, leaf) else x.width + 1 for x in self.getExternal()])
             assert self.root is not None and is_node(self.root)
             n = self.root  # .children[0]
             for k in self.Objects:
@@ -1244,13 +1248,14 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        tip_names = [k.name for k in self.getExternal()]
+        tip_names: list[str] = [k.name for k in self.getExternal()]
         tmrcaMatrix = {
             x: {y: None if x != y else 0.0 for y in tip_names} for x in tip_names
         }  ## pairwise matrix of tips
 
         for k in self.getInternal():  ## iterate over nodes
             all_children = list(k.leaves)  ## fetch all descendant tips of node
+            assert k.absoluteTime is not None
 
             for a, tipA in enumerate(all_children):
                 for tipB in all_children[a + 1 :]:
@@ -1902,8 +1907,8 @@ class tree:  ## tree class
 
             normaliseHeight = func
 
-        def linspace(start, stop, n):
-            return list(start + ((stop - start) / (n - 1)) * i for i in range(n)) if n > 1 else stop
+        def linspace(start: float, stop: float, n: int):
+            return [start + ((stop - start) / (n - 1)) * i for i in range(n)] if n > 1 else stop
 
         for k in filter(target, self.Objects):  ## iterate over branches
             x = normaliseHeight(x_attr(k) + inwardSpace)  ## get branch x position
@@ -1929,6 +1934,7 @@ class tree:  ## tree class
                 yl = circ_s + circ * yl / self.ySpan  ## transform y into a fraction of total y
                 yr = circ_s + circ * yr / self.ySpan
                 ybar = linspace(yl, yr, precision)  ## what used to be vertical node bar is now a curved line
+                assert isinstance(ybar, list)
 
                 xs = [yx * x for yx in map(math.sin, ybar)]  ## convert to polar coordinates
                 ys = [yy * x for yy in map(math.cos, ybar)]
@@ -2184,8 +2190,6 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
         "beast_tip": r"(\(|,)([0-9]+)(\[|\:)",  # Pattern to match tips in BEAST format (integers)
         "non_beast_tip": r"(\(|,)(\'|\")*([^\(\):\[\'\"#]+)(\'|\"|)*(\[)*",  # Pattern to match tips with unencoded names
     }
-    if not isinstance(data, str):  ## tree string is not an instance of string (could be unicode) - convert
-        data = str(data)
 
     # Add in some checks that the data are in correct format
     assert data.endswith(";"), "Improperly formatted string: must end in semicolon"
@@ -2221,6 +2225,8 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
             ll.add_leaf(i, match.group(2))  ## add tip
             i += len(match.group(2))  ## advance in tree string by however many characters the tip is encoded
 
+        assert ll.cur_node is not None
+
         match = re.match(
             patterns["non_beast_tip"], data[i - 1 : i + 200]
         )  ## look for tips with unencoded names - if the tips have some unusual format you'll have to modify this
@@ -2250,12 +2256,13 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
                     if destination is None:  ## not set destination before
                         destination = k  ## destination is matching node
                     else:  ## destination seen before - raise an error (indicates reticulate branch ids are not unique)
-                        raise Exception(
+                        raise ValueError(
                             "Reticulate branch not unique: %s seen elsewhere in the tree" % (match.group(1))
                         )
             if destination:  ## identified destination of this branch
                 if verbose:
                     print("identified %s destination" % (match.group(1)))
+                assert isinstance(ll.cur_node, reticulation)
                 ll.cur_node.target = destination  ## set current node's target as the destination
                 setattr(destination, "contribution", ll.cur_node)  ## add contributing edge to destination
             else:
@@ -2277,7 +2284,7 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
                     if origin is None:  ## origin not identified yet
                         origin = k  ## origin is reticulate branch with the correct name
                     else:  ## origin has been identified - shouldn't happen, implies that multiple reticulate branches exist with the same name
-                        raise Exception(
+                        raise ValueError(
                             "Reticulate branch not unique: %s seen elsewhere in the tree" % (match.group(1))
                         )
             if origin:  ## identified origin
@@ -2350,8 +2357,8 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
                             ll.cur_node.traits[tr].append(v.strip('"'))
                 else:
                     try:
-                        ll.cur_node.traits[tr] = list(map(float, val[1:-1].split(",")))
-                    except:
+                        ll.cur_node.traits[tr] = [float(v) for v in val[1:-1].split(",")]
+                    except (ValueError, TypeError):
                         print("some other trait: %s" % (vals))
 
             if len(figtree) > 0:
@@ -2387,7 +2394,7 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
             break  ## end loop
 
 
-def make_treeJSON(JSONnode, json_translation, ll=None, verbose=False):
+def make_treeJSON(JSONnode: dict, json_translation: dict, ll: tree | None = None, verbose: bool = False):
     """
     Parse an auspice JSON tree and create a baltic tree object.
 
@@ -2416,6 +2423,8 @@ def make_treeJSON(JSONnode, json_translation, ll=None, verbose=False):
         JSONnode.update(attr)
 
     new_node.parent = ll.cur_node  ## set parent-child relationships
+
+    assert ll.cur_node is not None and is_node(ll.cur_node)
     ll.cur_node.children.append(new_node)
     new_node.index = JSONnode[json_translation["name"]]  ## indexing is based on name
     new_node.traits = {
@@ -2427,18 +2436,19 @@ def make_treeJSON(JSONnode, json_translation, ll=None, verbose=False):
     if "children" in JSONnode:
         for child in JSONnode["children"]:
             make_treeJSON(child, json_translation, ll)
+            assert ll.cur_node is not None
             ll.cur_node = ll.cur_node.parent
     return ll
 
 
 def loadNewick(
     tree_path,
-    tip_regex=r"\|([0-9]+\-[0-9]+\-[0-9]+)",
-    date_fmt="%Y-%m-%d",
-    variableDate=True,
-    absoluteTime=False,
-    verbose=False,
-    sortBranches=True,
+    tip_regex: str = r"\|([0-9]+\-[0-9]+\-[0-9]+)",
+    date_fmt: str = "%Y-%m-%d",
+    variableDate: bool = True,
+    absoluteTime: bool = False,
+    verbose: bool = False,
+    sortBranches: bool = True,
 ):
     r"""
     Load a tree from a Newick file and process it.
@@ -2468,10 +2478,10 @@ def loadNewick(
     handle = open(tree_path, "r") if isinstance(tree_path, str) else tree_path
 
     for line in handle:
-        l = line.strip("\n")
-        if "(" in l:
-            treeString_start = l.index("(")
-            ll = make_tree(l[treeString_start:], verbose=verbose)  ## send tree string to make_tree function
+        line = line.strip("\n")
+        if "(" in line:
+            treeString_start = line.index("(")
+            ll = make_tree(line[treeString_start:], verbose=verbose)  ## send tree string to make_tree function
             if verbose:
                 print("Identified tree string")
 
@@ -2535,40 +2545,40 @@ def loadNexus(
     Docstring generated with ChatGPT 4o.
     """
     tip_flag = False
-    tips = {}
+    tips: dict[str, str] = {}
     tip_num = 0
     ll = None
 
     handle = open(tree_path, "r") if isinstance(tree_path, str) else tree_path
 
     for line in handle:
-        l = line.strip("\n")
+        line = line.strip("\n")
 
-        match = re.search("Dimensions ntax=([0-9]+);", l)
+        match = re.search("Dimensions ntax=([0-9]+);", line)
         if match:
             tip_num = int(match.group(1))
             if verbose:
                 print("File should contain %d taxa" % (tip_num))
 
-        match = re.search(treestring_regex, l)
+        match = re.search(treestring_regex, line)
         if match:
-            treeString_start = l.index("(")
-            ll = make_tree(l[treeString_start:], verbose=verbose)  ## send tree string to make_tree function
+            treeString_start = line.index("(")
+            ll = make_tree(line[treeString_start:], verbose=verbose)  ## send tree string to make_tree function
             if verbose:
                 print("Identified tree string")
 
         if tip_flag:
-            match = re.search(r"([0-9]+) ([A-Za-z\-\_\/\.'0-9 \|?]+)", l)
+            match = re.search(r"([0-9]+) ([A-Za-z\-\_\/\.'0-9 \|?]+)", line)
             if match:
                 tips[match.group(1)] = match.group(2).strip('"').strip("'")
                 if verbose:
                     print("Identified tip translation %s: %s" % (match.group(1), tips[match.group(1)]))
-            elif ";" not in l:
-                print("tip not captured by regex:", l.replace("\t", ""))
+            elif ";" not in line:
+                print("tip not captured by regex:", line.replace("\t", ""))
 
-        if "Translate" in l:
+        if "Translate" in line:
             tip_flag = True
-        if ";" in l:
+        if ";" in line:
             tip_flag = False
 
     assert ll, "Failed to find tree string using regular expression"
