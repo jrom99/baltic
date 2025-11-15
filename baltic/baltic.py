@@ -4,9 +4,10 @@ import math
 import re
 import sys
 from functools import reduce
-from operator import methodcaller
-from typing import Callable, Literal, TypeGuard
+from operator import attrgetter, methodcaller
+from typing import Any, Callable, Literal, TypeGuard
 
+from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
 
 from .utils import always_true, calendarDate, convertDate, decimalDate, initialized_property
@@ -48,7 +49,7 @@ class Branch:
     branchType: Literal["leaf", "node"]
     x: float | None
     y: float | None
-    traits: dict | None
+    traits: dict
 
     def __init__(
         self,
@@ -62,6 +63,7 @@ class Branch:
         self.y = y
         self.absoluteTime = None
         self.traits = traits or {}
+        self._height = None
 
     @initialized_property
     def length(self) -> float: ...
@@ -260,6 +262,7 @@ class tree:  ## tree class
         ret = reticulation(name)
         ret.index = name
         ret.parent = self.cur_node
+        assert is_node(self.cur_node)
         self.cur_node.children.append(ret)
         self.Objects.append(ret)
         self.cur_node = ret
@@ -283,7 +286,7 @@ class tree:  ## tree class
             self.root.length = 0.0
 
         new_node.parent = self.cur_node  ## new node's parent is current node
-        assert self.cur_node.is_node(), (
+        assert is_node(self.cur_node), (
             "Attempted to add a child to a non-node object. Check if tip names have illegal characters like parentheses or commas."
         )
         self.cur_node.children.append(new_node)  ## new node is a child of current node
@@ -306,7 +309,7 @@ class tree:  ## tree class
             self.root = new_leaf
 
         new_leaf.parent = self.cur_node  ## leaf's parent is current node
-        assert self.cur_node.is_node(), (
+        assert is_node(self.cur_node), (
             "Attempted to add a child to a non-node object. Check if tip names have illegal characters like parentheses."
         )
         self.cur_node.children.append(new_leaf)  ## assign leaf to parent's children
@@ -344,6 +347,7 @@ class tree:  ## tree class
         """
 
         if starting_node is None:
+            assert self.root and is_node(self.root)
             starting_node = self.root
         if traverse_condition is None:
             traverse_condition = always_true
@@ -432,6 +436,7 @@ class tree:  ## tree class
             for k in sorted(multitype_nodes, key=lambda x: -x.height):
                 child = k.children[0]  ## fetch child
                 grandparent = k.parent if k.parent.index else self.root  ## fetch grandparent
+                assert isinstance(grandparent, node)
 
                 child.parent = grandparent  ## child's parent is now grandparent
                 grandparent.children.append(child)  ## add child to grandparent's children
@@ -539,6 +544,7 @@ class tree:  ## tree class
         if cur_node is None:  ## if no starting point defined - start from root
             if verbose:
                 print("Initiated traversal from root")
+            assert self.root is not None and is_node(self.root)
             cur_node = self.root
 
             if traverse_condition is None and include_condition is None:  ## reset heights if traversing from scratch
@@ -573,10 +579,10 @@ class tree:  ## tree class
         if include_condition(cur_node):  ## test if interested in cur_node
             collect.append(cur_node)  ## add to collect list for reporting later
 
-        if cur_node.is_leaf() and self.root != cur_node:  ## cur_node is a tip (and tree is not single tip)
+        if is_leaf(cur_node) and self.root != cur_node:  ## cur_node is a tip (and tree is not single tip)
             cur_node.parent.leaves.add(cur_node.name)  ## add to parent's list of tips
 
-        elif cur_node.is_node():  ## cur_node is node
+        elif is_node(cur_node):  ## cur_node is node
             for child in filter(
                 traverse_condition, cur_node.children
             ):  ## only traverse through children we're interested
@@ -802,7 +808,7 @@ class tree:  ## tree class
         self.ySpan = max(yvalues) - min(yvalues) + min(yvalues) * 2  ## determine appropriate y axis span of tree
 
         assert self.root is not None
-        if self.root.is_node():
+        if is_node(self.root):
             self.root.x = min(
                 [q.x - q.length for q in self.root.children if q.x is not None]
             )  ## set root x and y coordinates
@@ -811,7 +817,7 @@ class tree:  ## tree class
         else:
             self.root.x = self.root.length
 
-    def drawUnrooted(self, rotate=0.0, n=None, total=None):
+    def drawUnrooted(self, rotate: float = 0.0, n: node | None = None, total: int | None = None):
         """
         Calculate x and y coordinates of each branch in an unrooted arrangement.
 
@@ -832,14 +838,16 @@ class tree:  ## tree class
         """
 
         if n is None:
-            total = sum([1 if x.is_leaf() else x.width + 1 for x in self.getExternal()])
+            total = sum([1 if is_leaf(x) else x.width + 1 for x in self.getExternal()])
+            assert self.root is not None and is_node(self.root)
             n = self.root  # .children[0]
             for k in self.Objects:
                 k.traits["tau"] = 2 * math.pi * rotate
                 k.x = 0.0
                 k.y = 0.0
 
-        w = 2 * math.pi * 1.0 / float(total) if n.is_leaf() else 2 * math.pi * len(n.leaves) / float(total)
+        assert total is not None
+        w = 2 * math.pi * 1.0 / float(total) if is_leaf(n) else 2 * math.pi * len(n.leaves) / float(total)
 
         if n.parent.x is None:
             n.parent.x = 0.0
@@ -849,7 +857,7 @@ class tree:  ## tree class
         n.y = n.parent.y + n.length * math.sin(n.traits["tau"] + w * 0.5)
         eta = n.traits["tau"]
 
-        if n.is_node():
+        if is_node(n):
             for ch in n.children:
                 w = 2 * math.pi * 1.0 / float(total) if ch.is_leaf() else 2 * math.pi * len(ch.leaves) / float(total)
 
@@ -1033,6 +1041,7 @@ class tree:  ## tree class
                     k.parent
                 )  ## once node is deleted, the parent to all their children will be the parent of the deleted node
                 if new_parent is None:
+                    assert self.root is not None
                     new_parent = self.root
                 if verbose:
                     print(
@@ -1059,12 +1068,7 @@ class tree:  ## tree class
                 nodes_to_delete.remove(k)  ## in fact, the node never existed
 
                 if len(designated_nodes) == 0:
-                    nodes_to_delete == list(
-                        filter(
-                            lambda n: n.is_node() and collapseIf(n) and n != newTree.root,
-                            newTree.Objects,
-                        )
-                    )
+                    nodes_to_delete = [n for n in newTree.Objects if is_node(n) and collapseIf(n) and n != newTree.root]
                 else:
                     assert len([w for w in designated_nodes if w.is_node()]) == len(designated_nodes), (
                         "Non-node class detected in list of nodes designated for deletion"
@@ -1114,6 +1118,7 @@ class tree:  ## tree class
         Docstring generated with ChatGPT 4o.
         """
         if cur_node is None:
+            assert self.root is not None
             cur_node = self.root  # .children[-1]
         if traits is None:
             traits = set(sum([list(k.traits.keys()) for k in self.Objects], []))  ## fetch all trait keys
@@ -1125,9 +1130,7 @@ class tree:  ## tree class
                     print("Exporting to NEXUS format")
                 string_fragment.append("#NEXUS\nBegin trees;\ntree TREE1 = [&R] ")
         if traverse_condition is None:
-
-            def traverse_condition(k):
-                return True
+            traverse_condition = always_true
 
         comment = []  ## will hold comment
         if len(traits) > 0:  ## non-empty list of traits to output
@@ -1168,7 +1171,7 @@ class tree:  ## tree class
                 elif verbose:
                     print("trait %s unavailable for %s (%s)" % (tr, cur_node.index, cur_node.branchType))
 
-        if cur_node.is_node():
+        if is_node(cur_node):
             if verbose:
                 print("node: %s" % (cur_node.index))
             string_fragment.append("(")
@@ -1193,7 +1196,7 @@ class tree:  ## tree class
                     string_fragment.append(",")
             string_fragment.append(")")  ## last child, node terminates
 
-        elif cur_node.is_leaf():
+        elif is_leaf(cur_node):
             if rename is None:
                 treeName = cur_node.name  ## designated numName
             else:
@@ -1319,6 +1322,8 @@ class tree:  ## tree class
             k.children = [
                 c for c in k.children if c in embedding
             ]  ## only keep children that are present in lineage traceback
+
+        assert reduced_tree.root is not None and is_node(reduced_tree.root)
         reduced_tree.root.children = [c for c in reduced_tree.root.children if c in embedding]  ## do the same for root
 
         reduced_tree.fixHangingNodes()
@@ -1330,7 +1335,7 @@ class tree:  ## tree class
 
         return reduced_tree  ## return new tree
 
-    def countLineages(self, t, attr="absoluteTime", condition=lambda x: True):
+    def countLineages(self, t: float, attr: str = "absoluteTime", condition: Callable[..., bool] = always_true):
         """
         Count the number of lineages present at a specific time point.
 
@@ -1357,7 +1362,7 @@ class tree:  ## tree class
             ]
         )
 
-    def getExternal(self, secondFilter=None):
+    def getExternal(self, secondFilter: Callable[[clade | leaf], bool] | None = None):
         """
         Get all leaf-like branches (`leaf`, `clade`, and `reticulation` classes).
 
@@ -1373,7 +1378,9 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        externals = list(filter(secondFilter, filter(lambda k: k.is_leaflike(), self.Objects)))
+        if secondFilter is None:
+            secondFilter = always_true
+        externals = [k for k in self.Objects if is_leaflike(k) and secondFilter(k)]
         return externals
 
     def getInternal(self, secondFilter: Callable[[node], bool] | None = None):
@@ -1429,7 +1436,7 @@ class tree:  ## tree class
         else:
             return select
 
-    def getParameter(self, statistic: str, use_trait: bool=False, which: Callable[[Branch], bool] | None=None):
+    def getParameter(self, statistic: str, use_trait: bool = False, which: Callable[[Branch], bool] | None = None):
         """
         Return a list of either branch trait or attribute states across branches.
 
@@ -1487,12 +1494,12 @@ class tree:  ## tree class
 
     def addText(
         self,
-        ax,
-        target=None,
-        x_attr=None,
-        y_attr=None,
-        text=None,
-        zorder=None,
+        ax: Axes,
+        target: Callable[[Branch], bool] = is_leaf,
+        x_attr: Callable[[Branch], float] = attrgetter("x"),
+        y_attr: Callable[[Branch], float] = attrgetter("y"),
+        text: Callable[[Branch], str] = attrgetter("name"),
+        zorder: int = 4,
         **kwargs,
     ):
         """
@@ -1500,11 +1507,11 @@ class tree:  ## tree class
 
         Parameters:
         ax (matplotlib.axes.Axes): The matplotlib axes to add the text to.
-        target (function or None): A function to select which branches to annotate. Default is None, which selects all `leaf` nodes.
-        x_attr (function or None): A function to determine the x-coordinate for the text. Default is None, which uses the branch's x attribute.
-        y_attr (function or None): A function to determine the y-coordinate for the text. Default is None, which uses the branch's y attribute.
-        text (function or None): A function to determine the text content. Default is None, which uses the `leaf` name attribute.
-        zorder (int or None): The z-order for the text. Default is None, which sets the z-order to 4.
+        target (function): A function to select which branches to annotate. Default selects all `leaf` nodes.
+        x_attr (function): A function to determine the x-coordinate for the text. Default uses the branch's x attribute.
+        y_attr (function): A function to determine the y-coordinate for the text. Default uses the branch's y attribute.
+        text (function): A function to determine the text content. Default uses the `leaf` name attribute.
+        zorder (int): The z-order for the text. Default sets the z-order to 4.
         **kwargs: Additional keyword arguments to pass to the `ax.text` method.
 
         Returns:
@@ -1515,28 +1522,6 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if target is None:
-
-            def target(k):
-                return k.is_leaf()
-
-        if x_attr is None:
-
-            def x_attr(k):
-                return k.x
-
-        if y_attr is None:
-
-            def y_attr(k):
-                return k.y
-
-        if text is None:
-
-            def text(k):
-                return k.name
-
-        if zorder is None:
-            zorder = 4
         local_kwargs = dict(kwargs)
         if "verticalalignment" not in local_kwargs:
             local_kwargs["verticalalignment"] = "center"
@@ -1549,12 +1534,12 @@ class tree:  ## tree class
 
     def addTextUnrooted(
         self,
-        ax,
-        target=None,
-        x_attr=None,
-        y_attr=None,
-        text=None,
-        zorder=None,
+        ax: Axes,
+        target: Callable[[Branch], bool] = is_leaf,
+        x_attr: Callable[[Branch], float] = attrgetter("x"),
+        y_attr: Callable[[Branch], float] = attrgetter("y"),
+        text: Callable[[Branch], str] = attrgetter("name"),
+        zorder: int = 4,
         **kwargs,
     ):
         """
@@ -1562,11 +1547,11 @@ class tree:  ## tree class
 
         Parameters:
         ax (matplotlib.axes.Axes): The matplotlib axes to add the text to.
-        target (function or None): A function to select which branches to annotate. Default is None, which selects all `leaf` nodes.
-        x_attr (function or None): A function to determine the x-coordinate for the text. Default is None, which uses the branch's x attribute.
-        y_attr (function or None): A function to determine the y-coordinate for the text. Default is None, which uses the branch's y attribute.
-        text (function or None): A function to determine the text content. Default is None, which uses the branch's name attribute.
-        zorder (int or None): The z-order for the text. Default is None, which sets the z-order to 4.
+        target (function): A function to select which branches to annotate. Default selects all `leaf` nodes.
+        x_attr (function): A function to determine the x-coordinate for the text. Default uses the branch's x attribute.
+        y_attr (function): A function to determine the y-coordinate for the text. Default uses the branch's y attribute.
+        text (function): A function to determine the text content. Default uses the branch's name attribute.
+        zorder (int): The z-order for the text. Default sets the z-order to 4.
         **kwargs: Additional keyword arguments to pass to the `ax.text` method.
 
         Returns:
@@ -1577,29 +1562,6 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if target is None:
-
-            def target(k):
-                return k.is_leaf()
-
-        if x_attr is None:
-
-            def x_attr(k):
-                return k.x
-
-        if y_attr is None:
-
-            def y_attr(k):
-                return k.y
-
-        if text is None:
-
-            def text(k):
-                return k.name
-
-        if zorder is None:
-            zorder = 4
-
         for k in filter(target, self.Objects):
             local_kwargs = dict(kwargs)
 
@@ -1631,16 +1593,16 @@ class tree:  ## tree class
 
     def addTextCircular(
         self,
-        ax,
-        target=None,
-        text=None,
-        x_attr=None,
-        y_attr=None,
-        circStart=0.0,
-        circFrac=1.0,
-        inwardSpace=0.0,
-        normaliseHeight=None,
-        zorder=None,
+        ax: Axes,
+        target: Callable[[Branch], bool] = is_leaf,
+        x_attr: Callable[[Branch], float] = attrgetter("x"),
+        y_attr: Callable[[Branch], float] = attrgetter("y"),
+        text: Callable[[Branch], str] = attrgetter("name"),
+        circStart: float = 0.0,
+        circFrac: float = 1.0,
+        inwardSpace: float = 0.0,
+        normaliseHeight: Callable | None = None,
+        zorder: int = 4,
         **kwargs,
     ):
         """
@@ -1648,15 +1610,15 @@ class tree:  ## tree class
 
         Parameters:
         ax (matplotlib.axes.Axes): The matplotlib axes to add the text to.
-        target (function or None): A function to select which branches to annotate. Default is None, which selects all `leaf` nodes.
-        text (function or None): A function to determine the text content. Default is None, which uses the `leaf` name attribute.
-        x_attr (function or None): A function to determine the x-coordinate for the text. Default is None, which uses the branch's x attribute.
-        y_attr (function or None): A function to determine the y-coordinate for the text. Default is None, which uses the branch's y attribute.
+        target (function): A function to select which branches to annotate. Default selects all `leaf` nodes.
+        text (function): A function to determine the text content. Default uses the `leaf` name attribute.
+        x_attr (function): A function to determine the x-coordinate for the text. Default uses the branch's x attribute.
+        y_attr (function): A function to determine the y-coordinate for the text. Default uses the branch's y attribute.
         circStart (float): The starting angle (in fractions of 2*pi, i.e. radians) for the circular layout. Default is 0.0.
         circFrac (float): The fraction of the full circle to use for the layout. Default is 1.0.
         inwardSpace (float): Amount of space to leave in the middle of the tree (can be negative for inward-facing trees). Default is 0.0.
         normaliseHeight (function or None): A function to normalize the x-coordinates. Default is None, creates a normalisation that returns 0.0 at root and 1.0 at the most diverged tip.
-        zorder (int or None): The z-order for the text. Default is None, which sets the z-order to 4.
+        zorder (int): The z-order for the text. Default sets the z-order to 4.
         **kwargs: Additional keyword arguments to pass to the `ax.text` method.
 
         Returns:
@@ -1667,38 +1629,16 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-
-        if target is None:
-
-            def target(k):
-                return k.is_leaf()
-
-        if x_attr is None:
-
-            def x_attr(k):
-                return k.x
-
-        if y_attr is None:
-
-            def y_attr(k):
-                return k.y
-
-        if text is None:
-
-            def text(k):
-                return k.name
-
-        if zorder is None:
-            zorder = 4
-
         circ_s = circStart * math.pi * 2
         circ = circFrac * math.pi * 2
 
-        allXs = list(map(x_attr, self.Objects))
+        allXs = [x_attr(k) for k in self.Objects]
         if normaliseHeight is None:
 
-            def normaliseHeight(value):
+            def func(value):
                 return (value - min(allXs)) / (max(allXs) - min(allXs))
+
+            normaliseHeight = func
 
         for k in filter(target, self.Objects):  ## iterate over branches
             local_kwargs = dict(kwargs)  ## copy global kwargs into a local version
@@ -1735,15 +1675,15 @@ class tree:  ## tree class
     def plotPoints(
         self,
         ax,
-        x_attr=None,
-        y_attr=None,
-        target=None,
-        size=None,
-        colour=None,
-        zorder=None,
-        outline=None,
-        outline_size=None,
-        outline_colour=None,
+        x_attr: Callable[[Branch], float] = attrgetter("x"),
+        y_attr: Callable[[Branch], float] = attrgetter("y"),
+        target: Callable[[Branch], bool] = is_leaf,
+        size: int | Callable[[Branch], float] = 40,
+        colour: str | Callable[[Branch], Any] = "k",
+        zorder: int = 3,
+        outline: bool = True,
+        outline_size: int | Callable[[Branch], float] | None = None,
+        outline_colour: str | Callable[[Branch], Any] = "k",
         **kwargs,
     ):
         """
@@ -1751,15 +1691,15 @@ class tree:  ## tree class
 
         Parameters:
         ax (matplotlib.axes.Axes): The matplotlib axes to add the points to.
-        x_attr (function or None): A function to determine the x-coordinate for the points. Default is None, which uses the branch's x attribute.
-        y_attr (function or None): A function to determine the y-coordinate for the points. Default is None, which uses the branch's y attribute.
-        target (function or None): A function to select which branches to annotate. Default is None, which selects all `leaf` objects.
-        size (int or function or None): The size of the points. Default is None, which sets the size to 40.
-        colour (str or function or None): The color of the points. Default is None, which sets the color to 'k' (black).
-        zorder (int or None): The z-order for the points. Default is None, which sets the z-order to 3.
-        outline (bool or None): If True, adds an outline to the points. Default is None, which sets the outline to True.
+        x_attr (function): A function to determine the x-coordinate for the points. Default uses the branch's x attribute.
+        y_attr (function): A function to determine the y-coordinate for the points. Default uses the branch's y attribute.
+        target (function): A function to select which branches to annotate. Default selects all `leaf` objects.
+        size (int or function): The size of the points. Default sets the size to 40.
+        colour (str or function): The color of the points. Default sets the color to 'k' (black).
+        zorder (int): The z-order for the points. Default sets the z-order to 3.
+        outline (bool): If True, adds an outline to the points. Default sets the outline to True.
         outline_size (int or function or None): The size of the outline. Default is None, which sets the outline size to twice the size of the points.
-        outline_colour (str or function or None): The color of the outline. Default is None, which sets the outline color to 'k' (black).
+        outline_colour (str or function): The color of the outline. Default sets the outline color to 'k' (black).
         **kwargs: Additional keyword arguments to pass to the `ax.scatter` method.
 
         Returns:
@@ -1770,40 +1710,12 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if target is None:
-
-            def target(k):
-                return k.is_leaf()
-
-        if x_attr is None:
-
-            def x_attr(k):
-                return k.x
-
-        if y_attr is None:
-
-            def y_attr(k):
-                return k.y
-
-        if size is None:
-            size = 40
-        if colour is None:
-
-            def colour(f):
-                return "k"
-
-        if zorder is None:
-            zorder = 3
-
-        if outline is None:
-            outline = True
         if outline_size is None:
 
-            def outline_size(k):
+            def func(k):
                 return size(k) * 2 if callable(size) else size * 2
 
-        if outline_colour is None:
-            outline_colour = "k"
+            outline_size = func
 
         xs = []
         ys = []
@@ -1853,12 +1765,12 @@ class tree:  ## tree class
     def plotTree(
         self,
         ax,
-        connection_type=None,
-        target=None,
-        x_attr=None,
-        y_attr=None,
-        width=None,
-        colour=None,
+        connection_type: Literal["baltic", "direct", "elbow"] = "baltic",
+        target: Callable[[Branch], bool] = always_true,
+        x_attr: Callable[[Branch], float] = attrgetter("x"),
+        y_attr: Callable[[Branch], float] = attrgetter("y"),
+        width: int | Callable[[Branch], float] = 2,
+        colour: str | Callable[[Branch], Any] = "k",
         **kwargs,
     ):
         """
@@ -1866,12 +1778,15 @@ class tree:  ## tree class
 
         Parameters:
         ax (matplotlib.axes.Axes): The matplotlib axes to plot the tree on.
-        connection_type (str or None): The type of connection between nodes. Options are 'baltic' (parental branches are plotted as two straight lines - one horizontal, one vertical), 'direct' (diagonal line that directly connects parent and child branches), or 'elbow' (each child has its own angled branch connecting it to the parent). Default is 'baltic'.
-        target (function or None): A function to select which branches to plot. Default is None, which selects all branches.
-        x_attr (function or None): A function to determine the x-coordinate for the nodes. Default is None, which uses the branch's x attribute.
-        y_attr (function or None): A function to determine the y-coordinate for the nodes. Default is None, which uses the branch's y attribute.
-        width (int or function or None): The width of the lines. Default is None, which sets the width to 2.
-        colour (str or function or None): The color of the lines. Default is None, which sets the color to 'k' (black).
+        connection_type (str or None): The type of connection between nodes. Options are:
+            - 'baltic' (parental branches are plotted as two straight lines - one horizontal, one vertical)
+            - 'direct' (diagonal line that directly connects parent and child branches)
+            - 'elbow' (each child has its own angled branch connecting it to the parent). Default is 'baltic'.
+        target (function): A function to select which branches to plot. Default selects all branches.
+        x_attr (function): A function to determine the x-coordinate for the nodes. Default uses the branch's x attribute.
+        y_attr (function): A function to determine the y-coordinate for the nodes. Default uses the branch's y attribute.
+        width (int or function): The width of the lines. Default sets the width to 2.
+        colour (str or function): The color of the lines. Default sets the color to 'k' (black).
         **kwargs: Additional keyword arguments to pass to the LineCollection.
 
         Returns:
@@ -1882,27 +1797,6 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if target is None:
-
-            def target(k):
-                return True
-
-        if x_attr is None:
-
-            def x_attr(k):
-                return k.x
-
-        if y_attr is None:
-
-            def y_attr(k):
-                return k.y
-
-        if width is None:
-            width = 2
-        if colour is None:
-            colour = "k"
-        if connection_type is None:
-            connection_type = "baltic"
         assert connection_type in ["baltic", "direct", "elbow"], 'Unrecognised drawing type "%s"' % (connection_type)
 
         branches = []
@@ -1953,16 +1847,16 @@ class tree:  ## tree class
     def plotCircularTree(
         self,
         ax,
-        target=None,
-        x_attr=None,
-        y_attr=None,
-        width=None,
-        colour=None,
-        circStart=0.0,
-        circFrac=1.0,
-        inwardSpace=0.0,
-        normaliseHeight=None,
-        precision=15,
+        target: Callable[[Branch], bool] = always_true,
+        x_attr: Callable[[Branch], float] = attrgetter("x"),
+        y_attr: Callable[[Branch], float] = attrgetter("y"),
+        width: float | Callable[[Branch], float] = 2,
+        colour: Callable[[Branch], Any] | str = "k",
+        circStart: float = 0.0,
+        circFrac: float = 1.0,
+        inwardSpace: float = 0.0,
+        normaliseHeight: Callable | None = None,
+        precision: int = 15,
         **kwargs,
     ):
         """
@@ -1970,11 +1864,11 @@ class tree:  ## tree class
 
         Parameters:
         ax (matplotlib.axes.Axes): The matplotlib axes to plot the tree on.
-        target (function or None): A function to select which branches to plot. Default is None, which selects all branches.
-        x_attr (function or None): A function to determine the x-coordinate for the nodes. Default is None, which uses the branch's x attribute.
-        y_attr (function or None): A function to determine the y-coordinate for the nodes. Default is None, which uses the branch's y attribute.
-        width (int or function or None): The width of the lines. Default is None, which sets the width to 2.
-        colour (str or function or None): The color of the lines. Default is None, which sets the color to 'k' (black).
+        target (function): A function to select which branches to plot. Default selects all branches.
+        x_attr (function): A function to determine the x-coordinate for the nodes. Default uses the branch's x attribute.
+        y_attr (function): A function to determine the y-coordinate for the nodes. Default uses the branch's y attribute.
+        width (int or function): The width of the lines. Default is None, which sets the width to 2.
+        colour (str or function): The color of the lines. Default is None, which sets the color to 'k' (black).
         circStart (float): The starting angle (in fractions of 2*pi, i.e. radians) for the circular layout. Default is 0.0.
         circFrac (float): The fraction of the full circle to use for the layout. Default is 1.0.
         inwardSpace (float): Amount of space to leave in the middle of the tree (can be negative for inward-facing trees). Default is 0.0.
@@ -1990,27 +1884,6 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-
-        if target is None:
-
-            def target(k):
-                return True
-
-        if x_attr is None:
-
-            def x_attr(k):
-                return k.x
-
-        if y_attr is None:
-
-            def y_attr(k):
-                return k.y
-
-        if colour is None:
-            colour = "k"
-        if width is None:
-            width = 2
-
         if inwardSpace < 0:
             inwardSpace -= self.treeHeight
 
@@ -2021,11 +1894,13 @@ class tree:  ## tree class
         circ_s = circStart * math.pi * 2
         circ = circFrac * math.pi * 2
 
-        allXs = list(map(x_attr, self.Objects))
+        allXs = [x_attr(k) for k in self.Objects]
         if normaliseHeight is None:
 
-            def normaliseHeight(value):
+            def func(value):
                 return (value - min(allXs)) / (max(allXs) - min(allXs))
+
+            normaliseHeight = func
 
         def linspace(start, stop, n):
             return list(start + ((stop - start) / (n - 1)) * i for i in range(n)) if n > 1 else stop
@@ -2077,19 +1952,19 @@ class tree:  ## tree class
     def plotCircularPoints(
         self,
         ax,
-        x_attr=None,
-        y_attr=None,
-        target=None,
-        size=None,
-        colour=None,
-        circStart=0.0,
-        circFrac=1.0,
-        inwardSpace=0.0,
+        x_attr: Callable[[Branch], float] = attrgetter("x"),
+        y_attr: Callable[[Branch], float] = attrgetter("y"),
+        target: Callable[[Branch], bool] = is_leaf,
+        size: float | Callable[[Branch], float] = 40,
+        colour: Callable[[Branch], Any] | str = "k",
+        circStart: float = 0.0,
+        circFrac: float = 1.0,
+        inwardSpace: float = 0.0,
         normaliseHeight=None,
-        zorder=None,
-        outline=None,
-        outline_size=None,
-        outline_colour=None,
+        zorder: int = 3,
+        outline: bool = True,
+        outline_size: float | Callable[[Branch], float] | None = None,
+        outline_colour: Callable[[Branch], Any] | str = "k",
         **kwargs,
     ):
         """
@@ -2120,40 +1995,12 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-
-        if target is None:
-
-            def target(k):
-                return k.is_leaf()
-
-        if x_attr is None:
-
-            def x_attr(k):
-                return k.x
-
-        if y_attr is None:
-
-            def y_attr(k):
-                return k.y
-
-        if size is None:
-            size = 40
-        if colour is None:
-            colour = "k"
-        if zorder is None:
-            zorder = 3
-
-        if outline is None:
-            outline = True
         if outline_size is None:
 
-            def outline_size(k):
+            def func1(k):
                 return size(k) * 2 if callable(size) else size * 2
 
-        if outline_colour is None:
-
-            def outline_colour(k):
-                return "k"
+            outline_size = func1
 
         if inwardSpace < 0:
             inwardSpace -= self.treeHeight
@@ -2164,8 +2011,10 @@ class tree:  ## tree class
         allXs = list(map(x_attr, self.Objects))
         if normaliseHeight is None:
 
-            def normaliseHeight(value):
+            def func(value):
                 return (value - min(allXs)) / (max(allXs) - min(allXs))
+
+            normaliseHeight = func
 
         def linspace(start, stop, n):
             return list(start + ((stop - start) / (n - 1)) * i for i in range(n)) if n > 1 else stop
@@ -2250,8 +2099,10 @@ def untangle(
         iterations = 3
     if cost_function is None:
 
-        def cost_function(pair):
+        def func(pair):
             return math.pow(abs(pair[0] - pair[1]), 2)
+
+        cost_function = func
 
     y_positions = {
         T: {k.name: k.y for k in T.getExternal()} for T in trees
