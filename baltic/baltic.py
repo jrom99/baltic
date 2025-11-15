@@ -3,12 +3,15 @@ import json
 import math
 import re
 import sys
+from collections.abc import Callable
 from functools import reduce
-from operator import attrgetter, methodcaller
-from typing import Any, Callable, Literal, TypeGuard
+from operator import attrgetter
+from statistics import mean
+from typing import Any, Literal
 
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
+from typing_extensions import TypeIs
 
 from .utils import always_true, calendarDate, convertDate, decimalDate, initialized_property
 
@@ -84,7 +87,7 @@ class Branch:
         return isinstance(self, leaf)
 
     def is_leaflike(self) -> bool:
-        return isinstance(self, (clade, leaf))
+        return isinstance(self, (clade, leaf, reticulation))
 
 
 class reticulation(Branch):  ## reticulation class (recombination, conversion, reassortment)
@@ -148,10 +151,12 @@ class clade(Branch):  ## clade class
     def __init__(self, givenName: str):
         super().__init__("leaf")
         self.name = givenName  ## the pretend tip name for the clade
-        self.subtree: list = []  ## subtree will contain all the branches that were collapsed
-        self.leaves: set[leaf] = set()
-        self.lastHeight = None  ## refers to the height of the highest tip in the collapsed clade
-        self.lastAbsoluteTime = None  ## refers to the absolute time of the highest tip in the collapsed clade
+        self.subtree: list[BranchType] = []  ## subtree will contain all the branches that were collapsed
+        self.leaves: set[str] = set()
+        self.lastHeight: float | None = None  ## refers to the height of the highest tip in the collapsed clade
+        self.lastAbsoluteTime: float | None = (
+            None  ## refers to the absolute time of the highest tip in the collapsed clade
+        )
         self.width = 1
 
 
@@ -176,11 +181,14 @@ class node(Branch):  ## node class
     Docstring generated with ChatGPT 4o.
     """
 
+    yRange: tuple[float, float]
+    """maximum extent of children's y coordinates"""
+
     def __init__(self):
         super().__init__("node")
-        self.children = []  ## a list of descendent branches of this node
-        self.childHeight = None  ## the youngest descendant tip of this node
-        self.leaves = set()  ## is a set of tips that are descended from it
+        self.children: list[BranchType] = []  ## a list of descendent branches of this node
+        self.childHeight: float | None = None  ## the youngest descendant tip of this node
+        self.leaves: set[str] = set()  ## is a set of tips that are descended from it
 
 
 class leaf(Branch):  ## leaf class
@@ -211,15 +219,19 @@ class leaf(Branch):  ## leaf class
         ...
 
 
-def is_node(obj: Branch) -> TypeGuard[node]:
+BranchType = reticulation | clade | node | leaf
+LeafLike = reticulation | clade | leaf
+
+
+def is_node(obj: BranchType) -> TypeIs[node]:
     return obj.is_node()
 
 
-def is_leaf(obj: Branch) -> TypeGuard[leaf]:
+def is_leaf(obj: BranchType) -> TypeIs[leaf]:
     return obj.is_leaf()
 
 
-def is_leaflike(obj: Branch) -> TypeGuard[leaf | clade]:
+def is_leaflike(obj: BranchType) -> TypeIs[LeafLike]:
     return obj.is_leaflike()
 
 
@@ -252,7 +264,7 @@ class tree:  ## tree class
         self.root = None  # self.cur_node ## root of the tree is current node
         self.Objects = []  ## tree objects have a flat list of all branches in them
         self.tipMap: dict[str, str] | None = None
-        self.treeHeight = 0  ## tree height is the distance between the root and the most recent tip
+        self.treeHeight: float = 0  ## tree height is the distance between the root and the most recent tip
         self.mostRecent = None
         self.ySpan = 0.0
 
@@ -358,21 +370,21 @@ class tree:  ## tree class
         if traverse_condition is None:
             traverse_condition = always_true
 
-        node = starting_node.parent if stem else starting_node  ## move up a node if we want the stem
+        node_: node = starting_node.parent if stem else starting_node  ## move up a node if we want the stem
 
         subtree_branches = self.traverse_tree(
-            node,
+            node_,
             include_condition=lambda k: True,
             traverse_condition=traverse_condition,
         )
-        subtree_branches = copy.deepcopy(subtree_branches)
+        subtree_branches = [*copy.deepcopy(subtree_branches)]
 
         if stem:  ## using stem - need to prune subtrees from root now
             unwanted_branches = []
-            for child in node.children:  ## iterate over parent's children
+            for child in node_.children:  ## iterate over parent's children
                 if child.index != starting_node.index:  ## not at focal branch (unwanted sibling)
                     unwanted_branches += self.traverse_tree(
-                        child, include_condition=lambda w: True
+                        child, include_condition=always_true
                     )  ## add all branches resulting from traversals of unwanted siblings
 
             remove = [
@@ -519,21 +531,21 @@ class tree:  ## tree class
 
     def traverse_tree(
         self,
-        cur_node: node | None = None,
-        include_condition: Callable[..., bool] | None = None,
-        traverse_condition: Callable[..., bool] | None = None,
+        cur_node: BranchType | None = None,
+        include_condition: Callable[[BranchType], bool] | None = is_leaflike,
+        traverse_condition: Callable[[BranchType], bool] | None = always_true,
         collect: list | None = None,
         verbose: bool = False,
-    ):
+    ) -> list[BranchType]:
         """
         Traverses the tree starting from a specified node and collects nodes based on conditions.
 
         Parameters:
         cur_node (node or None): The starting node for traversal. If None, starts from the root. Default is None.
         include_condition (function or None): A function that determines whether a node should be included in the `collect` list.
-                                              Default is None, which includes leaf-like nodes.
+                                              Default includes leaf-like nodes.
         traverse_condition (function or None): A function that determines whether a child node should be traversed.
-                                               Default is None, which traverses all nodes.
+                                               Default traverses all nodes.
         collect (list): A list to collect nodes that meet the include condition. Default is None, which collects and returns only leaf and leaf-like (`clade` and `reticulation`) objects.
         verbose (bool): If True, prints verbose output during traversal. Default is False.
 
@@ -548,21 +560,21 @@ class tree:  ## tree class
         if cur_node is None:  ## if no starting point defined - start from root
             if verbose:
                 print("Initiated traversal from root")
-            assert self.root is not None and is_node(self.root)
+            assert self.root is not None
             cur_node = self.root
 
             if traverse_condition is None and include_condition is None:  ## reset heights if traversing from scratch
                 for k in self.Objects:  ## reset various parameters
-                    if k.is_node():
+                    if is_node(k):
                         k.leaves = set()
                         k.childHeight = None
                     k.height = None
 
+        if include_condition is None:
+            include_condition = is_leaflike
+
         if traverse_condition is None:
             traverse_condition = always_true
-
-        if include_condition is None:
-            include_condition = methodcaller("is_leaflike")
 
         ## initiate collect list if not initiated
         # assumes the side effect of passing collect along
@@ -605,13 +617,15 @@ class tree:  ## tree class
                 cur_node.index
             )
             cur_node.childHeight = max(
-                [child.childHeight if child.is_node() else child.height for child in cur_node.children]
+                [child.childHeight or 0 if is_node(child) else child.height for child in cur_node.children]
             )
 
             if cur_node.parent:
                 cur_node.parent.leaves = cur_node.parent.leaves.union(
                     cur_node.leaves
                 )  ## pass tips seen during traversal to parent
+
+            assert cur_node.childHeight is not None
             self.treeHeight = cur_node.childHeight  ## it's the highest child of the starting node
         return collect
 
@@ -640,7 +654,12 @@ class tree:  ## tree class
             # k.name=d[k.numName] ## change its name
             k.name = d[k.name]  ## change its name
 
-    def sortBranches(self, descending: bool = True, sort_function: Callable | None = None, sortByHeight: bool = True):
+    def sortBranches(
+        self,
+        descending: bool = True,
+        sort_function: Callable[[BranchType], Any] | None = None,
+        sortByHeight: bool = True,
+    ):
         """
         Sort descendants of each node.
 
@@ -663,9 +682,7 @@ class tree:  ## tree class
 
             def func(k):
                 return (
-                    (k.is_node(), -len(k.leaves) * mod, k.length * mod)
-                    if k.is_node()
-                    else (k.is_node(), k.length * mod)
+                    (is_node(k), -len(k.leaves) * mod, k.length * mod) if is_node(k) else (is_node(k), k.length * mod)
                 )
 
             sort_function = func
@@ -691,8 +708,8 @@ class tree:  ## tree class
 
     def drawTree(
         self,
-        order: list | None = None,
-        width_function: Callable | None = None,
+        order: list[LeafLike] | None = None,
+        width_function: Callable[..., float] | None = None,
         pad_nodes: dict | None = None,
         verbose: bool = False,
     ):
@@ -715,9 +732,8 @@ class tree:  ## tree class
         Docstring generated with ChatGPT 4o.
         """
         if order is None:
-            order = self.traverse_tree(
-                include_condition=lambda k: k.is_leaflike()
-            )  ## order is a list of tips recovered from a tree traversal to make sure they're plotted in the correct order along the vertical tree dimension
+            ## order is a list of tips recovered from a tree traversal to make sure they're plotted in the correct order along the vertical tree dimension
+            order = [k for k in self.traverse_tree() if is_leaflike(k)]
             if verbose:
                 print("Drawing tree in pre-order")
         else:
@@ -729,7 +745,7 @@ class tree:  ## tree class
         if width_function is None:
             if verbose:
                 print("Drawing tree with default widths (1 unit for leaf objects, width+1 for clades)")
-            skips = [1 if isinstance(x, leaf) else x.width + 1 for x in order]
+            skips = [1 if is_leaf(x) else x.width + 1 for x in order]
         else:
             skips = [width_function(k) for k in order]
 
@@ -763,7 +779,7 @@ class tree:  ## tree class
             for k in self.getExternal():  ## reset y positions so tree starts at y=0.5
                 k.y -= minY - 0.5
 
-        assert len([k for k in self.Objects if k.is_leaflike()]) == len(order), (
+        assert len([k for k in self.Objects if is_leaflike(k)]) == len(order), (
             "Number of tips in tree does not match number of unique tips, check if two or more collapsed clades were assigned the same name."
         )
         storePlotted = 0
@@ -771,35 +787,28 @@ class tree:  ## tree class
         while len(drawn) != len(self.Objects):  # keep drawing the tree until everything is drawn
             if verbose:
                 print("Drawing iteration %d" % (len(drawn)))
-            for k in filter(
-                lambda w: w.index not in drawn, self.getInternal()
-            ):  ## iterate through internal nodes that have not been drawn
-                if len([q.y for q in k.children if q.y is not None]) == len(
-                    k.children
-                ):  ## all y coordinates of children known
+            ## iterate through internal nodes that have not been drawn
+            for k in self.getInternal(lambda w: w.index not in drawn):
+                children_y_coords = [
+                    q.y for q in k.children if q.y is not None
+                ]  ## get all existing y coordinates of the node
+                if len(children_y_coords) == len(k.children):  ## all y coordinates of children known
                     if verbose:
                         print("Setting node %s coordinates to" % (k.index))
-                    x = k.height  ## x position is height
-                    children_y_coords = [
-                        q.y for q in k.children if q.y is not None
-                    ]  ## get all existing y coordinates of the node
-                    y = sum(children_y_coords) / float(
-                        len(children_y_coords)
-                    )  ## internal branch is in the middle of the vertical bar
-                    k.x = x
-                    k.y = y
+
+                    k.x = k.height  ## x position is height
+                    ## internal branch is in the middle of the vertical bar
+                    k.y = mean(children_y_coords)
                     drawn[k.index] = None  ## remember that this objects has been drawn
                     if verbose:
                         print("%s (%s branches drawn)" % (k.y, len(drawn)))
                     minYrange = min(
-                        [min(child.yRange) if child.is_node() else child.y for child in k.children]
+                        [min(getattr(child, "yRange", [child.y])) for child in k.children]
                     )  ## get lowest y coordinate across children
                     maxYrange = max(
-                        [max(child.yRange) if child.is_node() else child.y for child in k.children]
+                        [max(getattr(child, "yRange", [child.y])) for child in k.children]
                     )  ## get highest y coordinate across children
-                    setattr(
-                        k, "yRange", [minYrange, maxYrange]
-                    )  ## assign the maximum extent of children's y coordinates
+                    k.yRange = (minYrange, maxYrange)  ## assign the maximum extent of children's y coordinates
 
             if len(self.Objects) > len(drawn):
                 assert len(drawn) > storePlotted, (
@@ -821,7 +830,7 @@ class tree:  ## tree class
         else:
             self.root.x = self.root.length
 
-    def drawUnrooted(self, rotate: float = 0.0, n: node | None = None, total: int | None = None):
+    def drawUnrooted(self, rotate: float = 0.0, n: BranchType | None = None, total: float | None = None):
         """
         Calculate x and y coordinates of each branch in an unrooted arrangement.
 
@@ -842,7 +851,7 @@ class tree:  ## tree class
         """
 
         if n is None:
-            total = sum([1 if isinstance(x, leaf) else x.width + 1 for x in self.getExternal()])
+            total = sum([1 if is_leaf(x) else x.width + 1 for x in self.getExternal()])
             assert self.root is not None and is_node(self.root)
             n = self.root  # .children[0]
             for k in self.Objects:
@@ -851,22 +860,22 @@ class tree:  ## tree class
                 k.y = 0.0
 
         assert total is not None
-        w = 2 * math.pi * 1.0 / float(total) if is_leaf(n) else 2 * math.pi * len(n.leaves) / float(total)
+
+        def width(n):
+            return 2 * math.pi * (len(n.leaves) if isinstance(n, clade) else 1) / total
 
         if n.parent.x is None:
             n.parent.x = 0.0
             n.parent.y = 0.0
 
-        n.x = n.parent.x + n.length * math.cos(n.traits["tau"] + w * 0.5)
-        n.y = n.parent.y + n.length * math.sin(n.traits["tau"] + w * 0.5)
+        n.x = n.parent.x + n.length * math.cos(n.traits["tau"] + width(n) * 0.5)
+        n.y = n.parent.y + n.length * math.sin(n.traits["tau"] + width(n) * 0.5)
         eta = n.traits["tau"]
 
         if is_node(n):
             for ch in n.children:
-                w = 2 * math.pi * 1.0 / float(total) if ch.is_leaf() else 2 * math.pi * len(ch.leaves) / float(total)
-
                 ch.traits["tau"] = eta
-                eta += w
+                eta += width(ch)
                 self.drawUnrooted(rotate, ch, total)
 
     def commonAncestor(self, descendants):
@@ -920,7 +929,7 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        assert cl.is_node(), "Cannot collapse non-node class"
+        assert is_node(cl), "Cannot collapse non-node class"
         collapsedClade = clade(givenName)
         collapsedClade.index = cl.index
         collapsedClade.leaves = cl.leaves
@@ -935,12 +944,13 @@ class tree:  ## tree class
             print("Replacing node %s (parent %s) with a clade class" % (cl.index, cl.parent.index))
         parent = cl.parent
 
-        remove_from_tree = self.traverse_tree(cl, include_condition=lambda k: True)
+        remove_from_tree = self.traverse_tree(cl, include_condition=always_true)
         collapsedClade.subtree = remove_from_tree
         assert len(remove_from_tree) < len(self.Objects), "Attempted collapse of entire tree"
         collapsedClade.lastHeight = max([x.height for x in remove_from_tree])
-        if [x.absoluteTime for x in remove_from_tree].count(None) != len(remove_from_tree):
-            collapsedClade.lastAbsoluteTime = max([x.absoluteTime for x in remove_from_tree])
+        collapsedClade.lastAbsoluteTime = max(
+            [x.absoluteTime for x in remove_from_tree if x.absoluteTime is not None], default=None
+        )
 
         for k in remove_from_tree:
             self.Objects.remove(k)
@@ -1367,7 +1377,7 @@ class tree:  ## tree class
             ]
         )
 
-    def getExternal(self, secondFilter: Callable[[clade | leaf], bool] | None = None):
+    def getExternal(self, secondFilter: Callable[[LeafLike], bool] | None = None):
         """
         Get all leaf-like branches (`leaf`, `clade`, and `reticulation` classes).
 
@@ -1410,7 +1420,7 @@ class tree:  ## tree class
         internals = [k for k in self.Objects if is_node(k) and secondFilter(k)]
         return internals
 
-    def getBranches(self, attrs: Callable[..., bool] = always_true, warn: bool = True):
+    def getBranches(self, attrs: Callable[[BranchType], bool] = always_true, warn: bool = True):
         """
         Get branches that satisfy a specified condition.
 
@@ -1441,14 +1451,14 @@ class tree:  ## tree class
         else:
             return select
 
-    def getParameter(self, statistic: str, use_trait: bool = False, which: Callable[[Branch], bool] | None = None):
+    def getParameter(self, statistic: str, use_trait: bool = False, which: Callable[[BranchType], bool] = always_true):
         """
         Return a list of either branch trait or attribute states across branches.
 
         Parameters:
         statistic (str): The name of the trait or attribute to retrieve.
         use_trait (bool): If True, retrieves the trait from the branch's traits dictionary. If False, retrieves the attribute directly from branch attributes. Default is False (retrieves attributes).
-        which (function or None): A function that determines which branches to include. Default is None, which includes all branches in the tree.
+        which (function): A function that determines which branches to include. Default includes all branches in the tree.
 
         Returns:
         list: A list of values for the specified trait or attribute across the selected branches.
@@ -1463,9 +1473,6 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        if which is None:
-            which = always_true
-
         branches = [k for k in self.Objects if which(k)]
 
         if not use_trait:
@@ -1500,10 +1507,10 @@ class tree:  ## tree class
     def addText(
         self,
         ax: Axes,
-        target: Callable[[Branch], bool] = is_leaf,
-        x_attr: Callable[[Branch], float] = attrgetter("x"),
-        y_attr: Callable[[Branch], float] = attrgetter("y"),
-        text: Callable[[Branch], str] = attrgetter("name"),
+        target: Callable[[BranchType], bool] = is_leaf,
+        x_attr: Callable[[BranchType], float] = attrgetter("x"),
+        y_attr: Callable[[BranchType], float] = attrgetter("y"),
+        text: Callable[[BranchType], str] = attrgetter("name"),
         zorder: int = 4,
         **kwargs,
     ):
@@ -1540,10 +1547,10 @@ class tree:  ## tree class
     def addTextUnrooted(
         self,
         ax: Axes,
-        target: Callable[[Branch], bool] = is_leaf,
-        x_attr: Callable[[Branch], float] = attrgetter("x"),
-        y_attr: Callable[[Branch], float] = attrgetter("y"),
-        text: Callable[[Branch], str] = attrgetter("name"),
+        target: Callable[[BranchType], bool] = is_leaf,
+        x_attr: Callable[[BranchType], float] = attrgetter("x"),
+        y_attr: Callable[[BranchType], float] = attrgetter("y"),
+        text: Callable[[BranchType], str] = attrgetter("name"),
         zorder: int = 4,
         **kwargs,
     ):
@@ -1599,14 +1606,14 @@ class tree:  ## tree class
     def addTextCircular(
         self,
         ax: Axes,
-        target: Callable[[Branch], bool] = is_leaf,
-        x_attr: Callable[[Branch], float] = attrgetter("x"),
-        y_attr: Callable[[Branch], float] = attrgetter("y"),
-        text: Callable[[Branch], str] = attrgetter("name"),
+        target: Callable[[BranchType], bool] = is_leaf,
+        x_attr: Callable[[BranchType], float] = attrgetter("x"),
+        y_attr: Callable[[BranchType], float] = attrgetter("y"),
+        text: Callable[[BranchType], str] = attrgetter("name"),
         circStart: float = 0.0,
         circFrac: float = 1.0,
         inwardSpace: float = 0.0,
-        normaliseHeight: Callable | None = None,
+        normaliseHeight: Callable[[float], float] | None = None,
         zorder: int = 4,
         **kwargs,
     ):
@@ -1680,15 +1687,15 @@ class tree:  ## tree class
     def plotPoints(
         self,
         ax,
-        x_attr: Callable[[Branch], float] = attrgetter("x"),
-        y_attr: Callable[[Branch], float] = attrgetter("y"),
-        target: Callable[[Branch], bool] = is_leaf,
-        size: int | Callable[[Branch], float] = 40,
-        colour: str | Callable[[Branch], Any] = "k",
+        x_attr: Callable[[BranchType], float] = attrgetter("x"),
+        y_attr: Callable[[BranchType], float] = attrgetter("y"),
+        target: Callable[[BranchType], bool] = is_leaf,
+        size: int | Callable[[BranchType], float] = 40,
+        colour: str | Callable[[BranchType], Any] = "k",
         zorder: int = 3,
         outline: bool = True,
-        outline_size: int | Callable[[Branch], float] | None = None,
-        outline_colour: str | Callable[[Branch], Any] = "k",
+        outline_size: int | Callable[[BranchType], float] | None = None,
+        outline_colour: str | Callable[[BranchType], Any] = "k",
         **kwargs,
     ):
         """
@@ -1771,11 +1778,11 @@ class tree:  ## tree class
         self,
         ax,
         connection_type: Literal["baltic", "direct", "elbow"] = "baltic",
-        target: Callable[[Branch], bool] = always_true,
-        x_attr: Callable[[Branch], float] = attrgetter("x"),
-        y_attr: Callable[[Branch], float] = attrgetter("y"),
-        width: int | Callable[[Branch], float] = 2,
-        colour: str | Callable[[Branch], Any] = "k",
+        target: Callable[[BranchType], bool] = always_true,
+        x_attr: Callable[[BranchType], float] = attrgetter("x"),
+        y_attr: Callable[[BranchType], float] = attrgetter("y"),
+        width: int | Callable[[BranchType], float] = 2,
+        colour: str | Callable[[BranchType], Any] = "k",
         **kwargs,
     ):
         """
@@ -1852,15 +1859,15 @@ class tree:  ## tree class
     def plotCircularTree(
         self,
         ax,
-        target: Callable[[Branch], bool] = always_true,
-        x_attr: Callable[[Branch], float] = attrgetter("x"),
-        y_attr: Callable[[Branch], float] = attrgetter("y"),
-        width: float | Callable[[Branch], float] = 2,
-        colour: Callable[[Branch], Any] | str = "k",
+        target: Callable[[BranchType], bool] = always_true,
+        x_attr: Callable[[BranchType], float] = attrgetter("x"),
+        y_attr: Callable[[BranchType], float] = attrgetter("y"),
+        width: float | Callable[[BranchType], float] = 2,
+        colour: Callable[[BranchType], Any] | str = "k",
         circStart: float = 0.0,
         circFrac: float = 1.0,
         inwardSpace: float = 0.0,
-        normaliseHeight: Callable | None = None,
+        normaliseHeight: Callable[[float], float] | None = None,
         precision: int = 15,
         **kwargs,
     ):
@@ -1958,19 +1965,19 @@ class tree:  ## tree class
     def plotCircularPoints(
         self,
         ax,
-        x_attr: Callable[[Branch], float] = attrgetter("x"),
-        y_attr: Callable[[Branch], float] = attrgetter("y"),
-        target: Callable[[Branch], bool] = is_leaf,
-        size: float | Callable[[Branch], float] = 40,
-        colour: Callable[[Branch], Any] | str = "k",
+        x_attr: Callable[[BranchType], float] = attrgetter("x"),
+        y_attr: Callable[[BranchType], float] = attrgetter("y"),
+        target: Callable[[BranchType], bool] = is_leaf,
+        size: float | Callable[[BranchType], float] = 40,
+        colour: Callable[[BranchType], Any] | str = "k",
         circStart: float = 0.0,
         circFrac: float = 1.0,
         inwardSpace: float = 0.0,
-        normaliseHeight=None,
+        normaliseHeight: Callable[[float], float] | None = None,
         zorder: int = 3,
         outline: bool = True,
-        outline_size: float | Callable[[Branch], float] | None = None,
-        outline_colour: Callable[[Branch], Any] | str = "k",
+        outline_size: float | Callable[[BranchType], float] | None = None,
+        outline_colour: Callable[[BranchType], Any] | str = "k",
         **kwargs,
     ):
         """
