@@ -6,14 +6,15 @@ import sys
 from collections.abc import Callable
 from functools import reduce
 from operator import attrgetter
+from pathlib import Path
 from statistics import mean
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
 from typing_extensions import TypeIs
 
-from .utils import always_true, calendarDate, convertDate, decimalDate, initialized_property
+from baltic.utils import always_true, calendarDate, convertDate, decimalDate, initialized_property
 
 __all__ = [
     "decimalDate",
@@ -53,19 +54,14 @@ class Branch:
     x: float | None
     y: float | None
     traits: dict
+    absoluteTime: float | None
 
-    def __init__(
-        self,
-        branchType: Literal["leaf", "node"],
-        x: float | None = None,
-        y: float | None = None,
-        traits: dict | None = None,
-    ):
+    def __init__(self, branchType: Literal["leaf", "node"]):
         self.branchType = branchType
-        self.x = x
-        self.y = y
+        self.x = None
+        self.y = None
         self.absoluteTime = None
-        self.traits = traits or {}
+        self.traits = {}
         self._height = None
 
     @initialized_property
@@ -88,6 +84,9 @@ class Branch:
 
     def is_leaflike(self) -> bool:
         return isinstance(self, (clade, leaf, reticulation))
+
+    def __str__(self):
+        return f"{self.__class__.__name__} {self.index!r}"
 
 
 class reticulation(Branch):  ## reticulation class (recombination, conversion, reassortment)
@@ -251,20 +250,27 @@ class tree:  ## tree class
     Docstring generated with ChatGPT 4o.
     """
 
+    cur_node: node | leaf | reticulation | None
+    Objects: list[BranchType]
+    tipMap: dict[str, str] | None
+    treeHeight: float
+    mostRecent: node | None
+    ySpan: float
+
     def __init__(self):
         """
         Initializes a new tree instance.
 
         Docstring generated with ChatGPT 4o.
         """
-        self.cur_node: node | leaf | reticulation | None = node()  ## current node is a new instance of a node class
+        self.cur_node = node()  ## current node is a new instance of a node class
         self.cur_node.index = "Root"  ## first object in the tree is the root to which the rest gets attached
         self.cur_node.length = 0.0  ## startind node branch length is 0
         self.cur_node.height = 0.0  ## starting node height is 0
         self.root = None  # self.cur_node ## root of the tree is current node
         self.Objects = []  ## tree objects have a flat list of all branches in them
-        self.tipMap: dict[str, str] | None = None
-        self.treeHeight: float = 0  ## tree height is the distance between the root and the most recent tip
+        self.tipMap = None
+        self.treeHeight = 0  ## tree height is the distance between the root and the most recent tip
         self.mostRecent = None
         self.ySpan = 0.0
 
@@ -532,8 +538,8 @@ class tree:  ## tree class
     def traverse_tree(
         self,
         cur_node: BranchType | None = None,
-        include_condition: Callable[[BranchType], bool] | None = is_leaflike,
-        traverse_condition: Callable[[BranchType], bool] | None = always_true,
+        include_condition: Callable[[BranchType], bool] | None = None,
+        traverse_condition: Callable[[BranchType], bool] | None = None,
         collect: list | None = None,
         verbose: bool = False,
     ) -> list[BranchType]:
@@ -1276,7 +1282,7 @@ class tree:  ## tree class
                         tmrcaMatrix[tipB][tipA] = k.absoluteTime
         return tmrcaMatrix
 
-    def reduceTree(self, keep, verbose=False):
+    def reduceTree(self, keep: Sequence[LeafLike], verbose: bool = False):
         """
         Reduce the tree to include only the branches tracking a specified set of tips to the root.
 
@@ -1495,7 +1501,7 @@ class tree:  ## tree class
         """
         while True:
             hanging_nodes = [
-                node for node in self.Objects if node.is_node() and not node.children
+                node for node in self.Objects if is_node(node) and not node.children
             ]  ## nodes without children (hanging nodes)
             if not hanging_nodes:
                 break
@@ -1776,13 +1782,14 @@ class tree:  ## tree class
 
     def plotTree(
         self,
-        ax,
+        ax: Axes,
         connection_type: Literal["baltic", "direct", "elbow"] = "baltic",
         target: Callable[[BranchType], bool] = always_true,
-        x_attr: Callable[[BranchType], float] = attrgetter("x"),
-        y_attr: Callable[[BranchType], float] = attrgetter("y"),
+        x_attr: Callable[[BranchType], float] | str = "x",
+        y_attr: Callable[[BranchType], float] | str = "y",
         width: int | Callable[[BranchType], float] = 2,
         colour: str | Callable[[BranchType], Any] = "k",
+        autoscale: bool = True,
         **kwargs,
     ):
         """
@@ -1795,8 +1802,8 @@ class tree:  ## tree class
             - 'direct' (diagonal line that directly connects parent and child branches)
             - 'elbow' (each child has its own angled branch connecting it to the parent). Default is 'baltic'.
         target (function): A function to select which branches to plot. Default selects all branches.
-        x_attr (function): A function to determine the x-coordinate for the nodes. Default uses the branch's x attribute.
-        y_attr (function): A function to determine the y-coordinate for the nodes. Default uses the branch's y attribute.
+        x_attr (function or str): A function or attribute name to determine the x-coordinate for the nodes. Default uses the branch's x attribute.
+        y_attr (function or str): A function or attribute name to determine the y-coordinate for the nodes. Default uses the branch's y attribute.
         width (int or function): The width of the lines. Default sets the width to 2.
         colour (str or function): The color of the lines. Default sets the color to 'k' (black).
         **kwargs: Additional keyword arguments to pass to the LineCollection.
@@ -1809,7 +1816,13 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
-        assert connection_type in ["baltic", "direct", "elbow"], 'Unrecognised drawing type "%s"' % (connection_type)
+        assert connection_type in ["baltic", "direct", "elbow"], f"Unrecognised drawing type {connection_type!r}"
+
+        if isinstance(x_attr, str):
+            x_attr = attrgetter(x_attr)
+
+        if isinstance(y_attr, str):
+            y_attr = attrgetter(y_attr)
 
         branches = []
         colours = []
@@ -1819,32 +1832,24 @@ class tree:  ## tree class
             xp = x_attr(k.parent) if k.parent else x  ## get parent x position
             y = y_attr(k)  ## get y position
 
-            try:
-                colours.append(colour(k)) if callable(colour) else colours.append(colour)
-            except KeyError:
-                colours.append((0.7, 0.7, 0.7))  ## in case no colour available for branch set it to grey
-            linewidths.append(width(k)) if callable(width) else linewidths.append(width)
+            colours.append(colour(k) if callable(colour) else colour)
+            linewidths.append(width(k) if callable(width) else width)
 
-            if (
-                connection_type == "baltic"
-            ):  ## each node has a single vertical line to which descendant branches are connected
+            if connection_type == "baltic":
+                ## each node has a single vertical line to which descendant branches are connected
                 branches.append(((xp, y), (x, y)))
-                if k.is_node():
-                    yl, yr = (
-                        y_attr(k.children[0]),
-                        y_attr(k.children[-1]),
-                    )  ## y positions of first and last child
+                if is_node(k):
+                    children = [y_attr(ch) for ch in k.children]
+                    yl, yr = min(children), max(children)  ## y positions of first and last child
                     branches.append(((x, yl), (x, yr)))
                     linewidths.append(linewidths[-1])
                     colours.append(colours[-1])
-            elif (
-                connection_type == "elbow"
-            ):  ## more standard connection where each branch connects to its parent via a right-angled line
+            elif connection_type == "elbow":
+                ## more standard connection where each branch connects to its parent via a right-angled line
                 yp = y_attr(k.parent) if k.parent else y  ## get parent x position
                 branches.append(((xp, yp), (xp, y), (x, y)))
-            elif (
-                connection_type == "direct"
-            ):  ## this gives triangular looking trees where descendants connect directly to their parents
+            elif connection_type == "direct":
+                ## this gives triangular looking trees where descendants connect directly to their parents
                 yp = y_attr(k.parent)  ## get y position
                 branches.append(((xp, yp), (x, y)))
             else:
@@ -1853,7 +1858,12 @@ class tree:  ## tree class
         if "capstyle" not in kwargs:
             kwargs["capstyle"] = "projecting"
         line_segments = LineCollection(branches, lw=linewidths, color=colours, **kwargs)
-        ax.add_collection(line_segments)
+
+        if autoscale:
+            ax.add_collection(line_segments, autolim=True)
+            ax.autoscale_view()
+        else:
+            ax.add_collection(line_segments)
         return ax
 
     def plotCircularTree(
@@ -2193,10 +2203,13 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
 
     Docstring generated with ChatGPT 4o.
     """
-    patterns = {
-        "beast_tip": r"(\(|,)([0-9]+)(\[|\:)",  # Pattern to match tips in BEAST format (integers)
-        "non_beast_tip": r"(\(|,)(\'|\")*([^\(\):\[\'\"#]+)(\'|\"|)*(\[)*",  # Pattern to match tips with unencoded names
-    }
+    # Pattern to match tips in BEAST format (integers)
+    BEAST_TIP_RE = re.compile(r"(\(|,)([0-9]+)(\[|\:)")
+    # Pattern to match tips with unencoded names
+    NON_BEAST_TIP_RE = re.compile(r"(\(|,)(\'|\")*([^\(\):\[\'\"#]+)(\'|\"|)*(\[)*")
+    RETICULATION_BEGIN_RE = re.compile(r"[\(,](#[A-Za-z0-9]+)")
+    RETICULATION_END_RE = re.compile(r"\)(#[A-Za-z0-9]+)")
+    MCC_COMMENTS_RE = re.compile(r"(?:\:)*\[(&[A-Za-z\_\-{}\,0-9\.\%=\"\'\+!# :\/\(\)\&]+)\]")
 
     # Add in some checks that the data are in correct format
     assert data.endswith(";"), "Improperly formatted string: must end in semicolon"
@@ -2205,110 +2218,105 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
     if ll is None:  ## calling without providing a tree object - create one
         ll = tree()
     i = 0  ## is an adjustable index along the tree string, it is incremented to advance through the string
-    stored_i = (
-        None  ## store the i at the end of the loop, to make sure we haven't gotten stuck somewhere in an infinite loop
-    )
+
+    ## store the i at the end of the loop, to make sure we haven't gotten stuck somewhere in an infinite loop
+    stored_i = None
 
     while i < len(data):  ## while there's characters left in the tree string - loop away
         if stored_i == i and verbose:
-            print("%d >%s<" % (i, data[i]))
+            print(f"{i} >{data[i]}<")
 
-        assert stored_i != i, "\nTree string unparseable\nStopped at >>%s<<\nstring region looks like this: %s" % (
-            data[i],
-            data[i : i + 5000],
+        assert stored_i != i, (
+            f"\nTree string unparseable\nStopped at >>{data[i]}<<\nstring region looks like this: {data[i : i + 5000]}"
         )  # Ensure that the index has advanced; if not, raise an error indicating an unparseable string
         stored_i = i  # Store the current index at the end of the loop to check for infinite loops
 
         if data[i] == "(":  ## look for new nodes
             if verbose:
-                print("%d adding node" % (i))
+                print(f"{i} adding node")
             ll.add_node(i)  ## add node to current node in tree ll
             i += 1  ## advance in tree string by one character
 
-        match = re.match(patterns["beast_tip"], data[i - 1 : i + 100])  ## look for tips in BEAST format (integers).
+        match = BEAST_TIP_RE.match(data[i - 1 : i + 100])  ## look for tips in BEAST format (integers).
         if match:
             if verbose:
-                print("%d adding leaf (BEAST) %s" % (i, match.group(2)))
-            ll.add_leaf(i, match.group(2))  ## add tip
-            i += len(match.group(2))  ## advance in tree string by however many characters the tip is encoded
+                print(f"{i} adding leaf (BEAST) {match[2]!r}")
+            ll.add_leaf(i, match[2])  ## add tip
+            i += len(match[2])  ## advance in tree string by however many characters the tip is encoded
 
         assert ll.cur_node is not None
 
-        match = re.match(
-            patterns["non_beast_tip"], data[i - 1 : i + 200]
+        match = NON_BEAST_TIP_RE.match(
+            data[i - 1 : i + 200]
         )  ## look for tips with unencoded names - if the tips have some unusual format you'll have to modify this
         if match:
             if verbose:
-                print("%d adding leaf (non-BEAST) %s" % (i, match.group(3)))
-            ll.add_leaf(i, match.group(3).strip('"').strip("'"))  ## add tip
+                print(f"{i} adding leaf (non-BEAST) {match[3]!r}")
+            ll.add_leaf(i, match[3].strip('"').strip("'"))  ## add tip
             i += (
-                len(match.group(3)) + match.group().count("'") + match.group().count('"')
+                len(match[3]) + match[0].count("'") + match[0].count('"')
             )  ## advance in tree string by however many characters the tip is encoded
 
         match = re.match(r"\)([0-9]+)\[", data[i - 1 : i + 100])  ## look for multitype tree singletons.
         if match:
             if verbose:
-                print("%d adding multitype node %s" % (i, match.group(1)))
-            i += len(match.group(1))
+                print(f"{i} adding multitype node {match[1]!r}")
+            i += len(match[1])
 
-        match = re.match(r"[\(,](#[A-Za-z0-9]+)", data[i - 1 : i + 200])  ## look for beginning of reticulate branch
+        match = RETICULATION_BEGIN_RE.match(data[i - 1 : i + 200])  ## look for beginning of reticulate branch
         if match:
             if verbose:
-                print("%d adding outgoing reticulation branch %s" % (i, match.group(1)))
-            ll.add_reticulation(match.group(1))  ## add reticulate branch
+                print(f"{i} adding outgoing reticulation branch {match[1]}")
+            ll.add_reticulation(match[1])  ## add reticulate branch
 
             destination = None
             for k in ll.Objects:  ## iterate over branches parsed so far
-                if k.traits.get("label", None) == match.group(1):  ## if there's a branch with a matching id
+                if k.traits.get("label", None) == match[1]:  ## if there's a branch with a matching id
                     if destination is None:  ## not set destination before
                         destination = k  ## destination is matching node
                     else:  ## destination seen before - raise an error (indicates reticulate branch ids are not unique)
-                        raise ValueError(
-                            "Reticulate branch not unique: %s seen elsewhere in the tree" % (match.group(1))
-                        )
+                        raise ValueError(f"Reticulate branch not unique: {match[1]} seen elsewhere in the tree")
             if destination:  ## identified destination of this branch
                 if verbose:
-                    print("identified %s destination" % (match.group(1)))
+                    print(f"identified {match[1]} destination")
                 assert isinstance(ll.cur_node, reticulation)
                 ll.cur_node.target = destination  ## set current node's target as the destination
                 setattr(destination, "contribution", ll.cur_node)  ## add contributing edge to destination
             else:
                 if verbose:
-                    print("destination of %s not identified yet" % (match.group(1)))
-            i += len(match.group()) - 1
+                    print(f"destination of {match[1]} not identified yet")
+            i += len(match[0]) - 1
 
-        match = re.match(r"\)(#[A-Za-z0-9]+)", data[i - 1 : i + 200])  ## look for landing point of reticulate branch
+        match = RETICULATION_END_RE.match(data[i - 1 : i + 200])  ## look for landing point of reticulate branch
         if match:
             if verbose:
-                print("%d adding incoming reticulation branch %s" % (i, match.group(1)))
-            ll.cur_node.traits["label"] = match.group(1)  ## set node label
+                print(f"{i} adding incoming reticulation branch {match[1]}")
+            ll.cur_node.traits["label"] = match[1]  ## set node label
 
             origin = None  ## branch is landing, check if its origin was seen previously
             for k in ll.Objects:  ## iterate over currently existing branches
-                if isinstance(k, reticulation) and k.name == match.group(
-                    1
+                if (
+                    isinstance(k, reticulation) and k.name == match[1]
                 ):  ## check if any reticulate branches match the origin
                     if origin is None:  ## origin not identified yet
                         origin = k  ## origin is reticulate branch with the correct name
                     else:  ## origin has been identified - shouldn't happen, implies that multiple reticulate branches exist with the same name
-                        raise ValueError(
-                            "Reticulate branch not unique: %s seen elsewhere in the tree" % (match.group(1))
-                        )
+                        raise ValueError(f"Reticulate branch not unique: {match[1]!r} seen elsewhere in the tree")
             if origin:  ## identified origin
                 if verbose:
-                    print("identified %s origin" % (match.group(1)))
+                    print(f"identified {match[1]!r} origin")
                 origin.target = ll.cur_node  ## set origin's landing at this node
                 setattr(ll.cur_node, "contribution", origin)  ## add contributing edge to this node
             else:
                 if verbose:
-                    print("origin of %s not identified yet" % (match.group(1)))
-            i += len(match.group()) - 1
+                    print(f"origin of {match[1]!r} not identified yet")
+            i += len(match[0]) - 1
 
-        match = re.match(r"(\:)*\[(&[A-Za-z\_\-{}\,0-9\.\%=\"\'\+!# :\/\(\)\&]+)\]", data[i:])  ## look for MCC comments
+        match = MCC_COMMENTS_RE.match(data[i:])
         if match:
             if verbose:
-                print("%d comment: %s" % (i, match.group(2)))
-            comment = match.group(2)
+                print(f"{i} comment: {match[1]!r}")
+            comment = match[1]
             numerics = re.findall(
                 r"[,&][A-Za-z\_\.0-9]+=[0-9\-Ee\.]+", comment
             )  ## find all entries that have values as floats
@@ -2326,11 +2334,8 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
                 tr, val = vals.split("=")
                 tr = tr[1:]
                 if "+" in val:
-                    val = val.split(
-                        "+"
-                    )[
-                        0
-                    ]  ## DO NOT ALLOW EQUIPROBABLE DOUBLE ANNOTATIONS (which are in format "A+B") - just get the first one
+                    ## DO NOT ALLOW EQUIPROBABLE DOUBLE ANNOTATIONS (which are in format "A+B") - just get the first one
+                    val = val.split("+")[0]
                 ll.cur_node.traits[tr] = val.strip('"')
 
             for vals in numerics:  ## assign all parsed annotations to traits of current branch
@@ -2366,31 +2371,28 @@ def make_tree(data: str, ll: tree | None = None, verbose: bool = False):
                     try:
                         ll.cur_node.traits[tr] = [float(v) for v in val[1:-1].split(",")]
                     except (ValueError, TypeError):
-                        print("some other trait: %s" % (vals))
+                        print(f"some other trait: {vals!r}")
 
             if len(figtree) > 0:
                 print("FigTree comment found, ignoring")
 
-            i += len(match.group())  ## advance in tree string by however many characters it took to encode labels
+            i += len(match[0])  ## advance in tree string by however many characters it took to encode labels
 
-        # match=re.match(r'([A-Za-z\_\-0-9\.]+)(\:|\;)',data[i:])## look for old school node labels
-        match = re.match(r"([A-Za-z\_\-0-9\.]+)(\:|\;|\[)", data[i:])  ## look for old school node labels
-
+        match = re.match(r"([A-Za-z\_\-0-9\.]+)([:;\[])", data[i:])  ## look for old school node labels
         if match:
             if verbose:
-                print("old school comment found: %s" % (match.group(1)))
-            ll.cur_node.traits["label"] = match.group(1)
+                print(f"old school comment found: {match[1]}")
+            ll.cur_node.traits["label"] = match[1]
 
-            i += len(match.group(1))
+            i += len(match[1])
 
         micromatch = re.match(r"(\:)*([0-9\.\-Ee]+)", data[i : i + 100])  ## look for branch lengths without comments
         if micromatch is not None:
             if verbose:
                 print("adding branch length (%d) %.6f" % (i, float(micromatch.group(2))))
             ll.cur_node.length = float(micromatch.group(2))  ## set branch length of current node
-            i += len(
-                micromatch.group()
-            )  ## advance in tree string by however many characters it took to encode branch length
+            ## advance in tree string by however many characters it took to encode branch length
+            i += len(micromatch[0])
 
         if data[i] == "," or data[i] == ")":  ## look for bifurcations or clade ends
             i += 1  ## advance in tree string
@@ -2555,19 +2557,23 @@ def loadNexus(
     tips: dict[str, str] = {}
     tip_num = 0
     ll = None
+    NTAXA_RE = re.compile(r"dimensions ntax=(\d+);", flags=re.I)
+    TREE_RE = re.compile(treestring_regex, flags=re.I)
+    TRANSLATE_RE = re.compile(r"([0-9]+) ([a-z0-9\-_/.'\" |?]+)", flags=re.I)
 
-    handle = open(tree_path, "r") if isinstance(tree_path, str) else tree_path
+    if isinstance(tree_path, str):
+        handle = Path(tree_path).read_text().splitlines()
+    else:
+        handle = tree_path.read().splitlines()
 
     for line in handle:
-        line = line.strip("\n")
-
-        match = re.search("Dimensions ntax=([0-9]+);", line)
+        match = NTAXA_RE.search(line)
         if match:
             tip_num = int(match.group(1))
             if verbose:
                 print("File should contain %d taxa" % (tip_num))
 
-        match = re.search(treestring_regex, line)
+        match = TREE_RE.search(line)
         if match:
             treeString_start = line.index("(")
             ll = make_tree(line[treeString_start:], verbose=verbose)  ## send tree string to make_tree function
@@ -2575,7 +2581,7 @@ def loadNexus(
                 print("Identified tree string")
 
         if tip_flag:
-            match = re.search(r"([0-9]+) ([A-Za-z\-\_\/\.'0-9 \|?]+)", line)
+            match = TRANSLATE_RE.search(line)
             if match:
                 tips[match.group(1)] = match.group(2).strip('"').strip("'")
                 if verbose:
@@ -2610,8 +2616,6 @@ def loadNexus(
         )
         ll.setAbsoluteTime(max(tip_dates))
 
-    if isinstance(tree_path, str):
-        handle.close()
     return ll
 
 
