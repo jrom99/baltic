@@ -8,7 +8,7 @@ from functools import reduce
 from operator import attrgetter
 from pathlib import Path
 from statistics import mean
-from typing import Any, Literal, Sequence
+from typing import Any, Literal
 
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
@@ -244,7 +244,7 @@ class tree:  ## tree class
     Objects (list): A flat list of all branches (nodes, leaves, reticulations) in the tree.
     tipMap (dict or None): A mapping of tip numbers to names used when importing trees in NEXUS format, assigned by `loadNexus()`.
     treeHeight (float): The height of the tree, defined as the distance between the root and the most recent tip.
-    mostRecent (node or None): The most recent node in the tree.
+    mostRecent (float or None): The age of the most recent node in the tree.
     ySpan (float): The vertical span of the tree for plotting.
 
     Docstring generated with ChatGPT 4o.
@@ -254,7 +254,7 @@ class tree:  ## tree class
     Objects: list[BranchType]
     tipMap: dict[str, str] | None
     treeHeight: float
-    mostRecent: node | None
+    mostRecent: float | None
     ySpan: float
 
     def __init__(self):
@@ -470,7 +470,7 @@ class tree:  ## tree class
                 self.Objects.remove(k)  ## remove old parent from all objects
         self.sortBranches()
 
-    def setAbsoluteTime(self, date):
+    def setAbsoluteTime(self, date: float):
         """
         Places all objects in absolute time by providing the date of the most recent tip.
 
@@ -488,7 +488,7 @@ class tree:  ## tree class
         """
         for k in self.Objects:  ## iterate over all objects
             k.absoluteTime = date - self.treeHeight + k.height  ## heights are in units of time from the root
-        self.mostRecent = max(k.absoluteTime for k in self.Objects)
+        self.mostRecent = max(k.absoluteTime or 0 for k in self.Objects)
 
     def treeStats(self):
         """
@@ -823,7 +823,7 @@ class tree:  ## tree class
                 )
             storePlotted = len(drawn)  ## remember how many branches were drawn this iteration
 
-        yvalues = [k.y for k in self.Objects]  ## all y values
+        yvalues = [k.y or 0 for k in self.Objects]  ## all y values
         self.ySpan = max(yvalues) - min(yvalues) + min(yvalues) * 2  ## determine appropriate y axis span of tree
 
         assert self.root is not None
@@ -1001,7 +1001,7 @@ class tree:  ## tree class
     def collapseBranches(
         self,
         collapseIf=lambda x: x.traits["posterior"] <= 0.5,
-        designated_nodes=[],
+        designated_nodes: list[node] = [],
         verbose=False,
     ):
         """
@@ -1026,27 +1026,19 @@ class tree:  ## tree class
         Docstring generated with ChatGPT 4o.
         """
         newTree = copy.deepcopy(self)  ## work on a copy of the tree
-        if (
-            len(designated_nodes) == 0
-        ):  ## no nodes were designated for deletion - relying on anonymous function to collapse nodes
-            nodes_to_delete = list(
-                filter(
-                    lambda n: n.is_node() and collapseIf(n) and n != newTree.root,
-                    newTree.Objects,
-                )
-            )  ## fetch a list of all nodes who are not the root and who satisfy the condition
+        ## no nodes were designated for deletion - relying on anonymous function to collapse nodes
+        if len(designated_nodes) == 0:
+            ## fetch a list of all nodes who are not the root and who satisfy the condition
+            nodes_to_delete = [n for n in newTree.Objects if is_node(n) and collapseIf(n) and n != newTree.root]
         else:
             assert len([w for w in designated_nodes if w.is_node()]) == len(designated_nodes), (
                 "Non-node class detected in list of nodes designated for deletion"
             )
             assert len([w for w in designated_nodes if w != newTree.root]) == 0, "Root node was designated for deletion"
 
-            nodes_to_delete = list(
-                filter(
-                    lambda w: w.index in [q.index for q in designated_nodes],
-                    newTree.Objects,
-                )
-            )  ## need to look up nodes designated for deletion by their indices, since the tree has been copied and nodes will have new memory addresses
+            ## need to look up nodes designated for deletion by their indices, since the tree has been copied and nodes will have new memory addresses
+            nodes_to_delete = [w for w in newTree.Objects if w.index in [q.index for q in designated_nodes]]
+
         if verbose:
             print("%s nodes set for collapsing: %s" % (len(nodes_to_delete), [w.index for w in nodes_to_delete]))
         assert len(nodes_to_delete) < len(newTree.getInternal()) - 1, "Chosen cutoff would remove all branches"
@@ -1054,6 +1046,7 @@ class tree:  ## tree class
             if verbose:
                 print("Continuing collapse cycle, %s nodes left" % (len(nodes_to_delete)))
             for k in sorted(nodes_to_delete, key=lambda x: -x.height):  ## start with branches near the tips
+                assert is_node(k)
                 zero_node = k.children  ## fetch the node's children
                 k.parent.children += zero_node  ## add them to the zero node's parent
                 old_parent = k  ## node to be deleted is the old parent
@@ -1275,14 +1268,14 @@ class tree:  ## tree class
 
             for a, tipA in enumerate(all_children):
                 for tipB in all_children[a + 1 :]:
-                    if (
-                        tmrcaMatrix[tipA][tipB] is None or tmrcaMatrix[tipA][tipB] <= k.absoluteTime
-                    ):  ## if node's time is more recent than previous entry - set new TMRCA value for pair of tips
+                    v = tmrcaMatrix[tipA][tipB]
+                    ## if node's time is more recent than previous entry - set new TMRCA value for pair of tips
+                    if v is None or v <= k.absoluteTime:
                         tmrcaMatrix[tipA][tipB] = k.absoluteTime
                         tmrcaMatrix[tipB][tipA] = k.absoluteTime
         return tmrcaMatrix
 
-    def reduceTree(self, keep: Sequence[LeafLike], verbose: bool = False):
+    def reduceTree(self, keep: list[LeafLike], verbose: bool = False):
         """
         Reduce the tree to include only the branches tracking a specified set of tips to the root.
 
@@ -1307,11 +1300,18 @@ class tree:  ## tree class
         )
         if verbose:
             print("Preparing branch hash for keeping %d branches" % (len(keep)))
-        branch_hash = {k.index: k for k in keep}
-        embedding = []
+        branch_hash = {}
+        for r in keep:
+            branch_hash[r.index] = r
+            # if isinstance(r, reticulation):
+            #     # avoid dangling reticulations
+            #     branch_hash[r.target.index] = r.target
+
         if verbose:
             print("Deep copying tree")
         reduced_tree = copy.deepcopy(self)  ## new tree object
+
+        embedding = []
         for k in reduced_tree.Objects:  ## deep copy branches from current tree
             if k.index in branch_hash:  ## if branch is designated as one to keep
                 cur_b = k
@@ -1319,17 +1319,18 @@ class tree:  ## tree class
                     print("Traversing to root from %s" % (cur_b.index))
                 while cur_b != reduced_tree.root:  ## descend to root
                     if verbose:
-                        print("at %s root: %s" % (cur_b.index, cur_b == reduced_tree.root))
+                        print(f"at {cur_b.index} root: {cur_b == reduced_tree.root}")
                     embedding.append(cur_b)  ## keep track of the path to root
                     cur_b = cur_b.parent
+
         embedding.append(reduced_tree.root)  ## add root to embedding
         if verbose:
             print(
                 "Finished extracting embedding with %s branches (%s tips, %s nodes)"
                 % (
                     len(embedding),
-                    len([w for w in embedding if w.is_leaf()]),
-                    len([w for w in embedding if w.is_node()]),
+                    len([w for w in embedding if is_leaf(w)]),
+                    len([w for w in embedding if is_node(w)]),
                 )
             )
         embedding = set(embedding)  ## prune down to only unique branches
@@ -1337,6 +1338,7 @@ class tree:  ## tree class
         reduced_tree.Objects = sorted(
             list(embedding), key=lambda x: x.height
         )  ## assign branches that are kept to new tree's Objects
+
         if verbose:
             print("Pruning untraversed lineages")
         for k in reduced_tree.getInternal():  ## iterate through reduced tree
@@ -1499,6 +1501,8 @@ class tree:  ## tree class
 
         Docstring generated with ChatGPT 4o.
         """
+        reticulations = {r.target: r for r in self.Objects if isinstance(r, reticulation)}
+
         while True:
             hanging_nodes = [
                 node for node in self.Objects if is_node(node) and not node.children
@@ -1506,6 +1510,9 @@ class tree:  ## tree class
             if not hanging_nodes:
                 break
 
+            dangling_rets = [reticulations[n] for n in hanging_nodes if n in reticulations]
+            if dangling_rets:
+                print("Dangling reticulations:", dangling_rets)
             for node in hanging_nodes:
                 node.parent.children.remove(node)
                 self.Objects.remove(node)
@@ -1518,6 +1525,7 @@ class tree:  ## tree class
         y_attr: Callable[[BranchType], float] = attrgetter("y"),
         text: Callable[[BranchType], str] = attrgetter("name"),
         zorder: int = 4,
+        font_kwargs: Callable[[BranchType], dict[str, Any]] | None = None,
         **kwargs,
     ):
         """
@@ -1544,10 +1552,14 @@ class tree:  ## tree class
         if "verticalalignment" not in local_kwargs:
             local_kwargs["verticalalignment"] = "center"
 
+        if font_kwargs is None:
+            def func(k):
+                return {}
+            font_kwargs = func
+
         for k in filter(target, self.Objects):
             x, y = x_attr(k), y_attr(k)
-            z = zorder
-            ax.text(x, y, text(k), zorder=z, **local_kwargs)
+            ax.text(x, y, text(k), zorder=zorder, **font_kwargs(k), **local_kwargs)
         return ax
 
     def addTextUnrooted(
@@ -1692,7 +1704,7 @@ class tree:  ## tree class
 
     def plotPoints(
         self,
-        ax,
+        ax: Axes,
         x_attr: Callable[[BranchType], float] = attrgetter("x"),
         y_attr: Callable[[BranchType], float] = attrgetter("y"),
         target: Callable[[BranchType], bool] = is_leaf,
@@ -1943,7 +1955,7 @@ class tree:  ## tree class
             Y = math.cos(y)
             branches.append(((X * xp, Y * xp), (X * x, Y * x)))
 
-            if k.is_node():
+            if is_node(k):
                 yl, yr = (
                     y_attr(k.children[0]),
                     y_attr(k.children[-1]),
