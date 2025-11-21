@@ -656,9 +656,8 @@ class tree:  ## tree class
         if d is None:
             raise ValueError("No dictionary provided for renaming tips.")
 
-        for k in self.getExternal():  ## iterate through leaf objects in tree
-            # k.name=d[k.numName] ## change its name
-            k.name = d[k.name]  ## change its name
+        for k in self.getExternal():
+            k.name = d.get(k.name, k.name)
 
     def sortBranches(
         self,
@@ -1553,8 +1552,10 @@ class tree:  ## tree class
             local_kwargs["verticalalignment"] = "center"
 
         if font_kwargs is None:
+
             def func(k):
                 return {}
+
             font_kwargs = func
 
         for k in filter(target, self.Objects):
@@ -1880,7 +1881,7 @@ class tree:  ## tree class
 
     def plotCircularTree(
         self,
-        ax,
+        ax: Axes,
         target: Callable[[BranchType], bool] = always_true,
         x_attr: Callable[[BranchType], float] = attrgetter("x"),
         y_attr: Callable[[BranchType], float] = attrgetter("y"),
@@ -1891,6 +1892,7 @@ class tree:  ## tree class
         inwardSpace: float = 0.0,
         normaliseHeight: Callable[[float], float] | None = None,
         precision: int = 15,
+        autoscale: bool = True,
         **kwargs,
     ):
         """
@@ -1944,11 +1946,8 @@ class tree:  ## tree class
             xp = normaliseHeight(x_attr(k.parent) + inwardSpace) if k.parent.parent else x  ## get parent x position
             y = y_attr(k)  ## get y position
 
-            try:
-                colours.append(colour(k)) if callable(colour) else colours.append(colour)
-            except KeyError:
-                colours.append((0.7, 0.7, 0.7))
-            linewidths.append(width(k)) if callable(width) else linewidths.append(width)
+            colours.append(colour(k) if callable(colour) else colour)
+            linewidths.append(width(k) if callable(width) else width)
 
             y = circ_s + circ * y / self.ySpan
             X = math.sin(y)
@@ -1974,14 +1973,13 @@ class tree:  ## tree class
                 colours += [colours[-1] for q in zip(ys, ys[1:])]  ## repeat colours
 
         line_segments = LineCollection(
-            branches,
-            lw=linewidths,
-            ls="-",
-            color=colours,
-            capstyle="projecting",
-            zorder=1,
+            branches, lw=linewidths, ls="-", color=colours, capstyle="projecting", zorder=1, **kwargs
         )  ## create line segments
-        ax.add_collection(line_segments)  ## add collection to axes
+        if autoscale:
+            ax.add_collection(line_segments, autolim=True)
+            ax.autoscale_view()
+        else:
+            ax.add_collection(line_segments)
         return ax
 
     def plotCircularPoints(
